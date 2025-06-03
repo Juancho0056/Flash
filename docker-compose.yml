@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: flashcards-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: flashcards_app
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d flashcards_app"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flashcards-app
+    restart: on-failure
+    env_file:
+      - .env # This loads variables from .env into the app container
+    environment:
+      # Overriding DATABASE_URL from .env for service-to-service communication
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/flashcards_app?schema=public
+      # PORT for the SvelteKit app if it needs to be configured via env
+      # PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db-data:

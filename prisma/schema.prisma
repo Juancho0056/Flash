@@ -1,0 +1,29 @@
+// prisma/schema.prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Collection {
+  id         String      @id @default(uuid())
+  name       String      @unique
+  flashcards Flashcard[]
+  createdAt  DateTime    @default(now())
+}
+
+model Flashcard {
+  id           String      @id @default(uuid())
+  question     String
+  answer       String
+  imageUrl     String?     // URL opcional para imagen
+  collection   Collection? @relation(fields: [collectionId], references: [id])
+  collectionId String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  timesViewed  Int         @default(0)
+  timesCorrect Int         @default(0)
+}
