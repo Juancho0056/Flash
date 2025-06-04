@@ -1,11 +1,16 @@
 <!-- src/routes/collections/[id].svelte -->
 <script lang="ts">
-  import type { PageData } from './$types';
-  // No longer need PrismaFlashcard or Collection here as PageData is typed from server load
   import Card from '$lib/components/Card.svelte';
-  import Modal from '$lib/components/Modal.svelte'; // Import Modal
+  import Modal from '$lib/components/Modal.svelte';
   import { goto } from '$app/navigation';
   import { onMount, afterUpdate } from 'svelte';
+  import type { Collection, Flashcard } from '@prisma/client';
+
+  interface PageData {
+    collection: Collection;
+    flashcards: Flashcard[];
+  }
+
 
   export let data: PageData;
 

@@ -31,7 +31,7 @@ services:
       # Overriding DATABASE_URL from .env for service-to-service communication
       DATABASE_URL: postgresql://postgres:postgres@db:5432/flashcards_app?schema=public
       # PORT for the SvelteKit app if it needs to be configured via env
-      # PORT: 3000
+      PORT: 3000
     ports:
       - "3000:3000"
     depends_on:
