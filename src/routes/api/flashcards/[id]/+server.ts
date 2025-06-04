@@ -36,7 +36,8 @@ export const PUT: RequestHandler = async ({ request, params }) => {
     }
 
     const body = await request.json();
-    const { question, answer, imageUrl, collectionId, timesViewed, timesCorrect } = body;
+    // Destructure new field isDifficult
+    const { question, answer, imageUrl, collectionId, timesViewed, timesCorrect, isDifficult } = body;
 
     if (question !== undefined && !question) throw error(400, 'Question cannot be empty');
     if (answer !== undefined && !answer) throw error(400, 'Answer cannot be empty');
@@ -48,6 +49,10 @@ export const PUT: RequestHandler = async ({ request, params }) => {
     if (collectionId !== undefined) dataToUpdate.collectionId = collectionId === '' ? null : collectionId;
     if (timesViewed !== undefined) dataToUpdate.timesViewed = Number(timesViewed);
     if (timesCorrect !== undefined) dataToUpdate.timesCorrect = Number(timesCorrect);
+    // Add isDifficult to dataToUpdate if present in request
+    if (isDifficult !== undefined) {
+      dataToUpdate.isDifficult = Boolean(isDifficult);
+    }
 
     if (Object.keys(dataToUpdate).length === 0) {
         throw error(400, 'No update data provided');

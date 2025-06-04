@@ -5,6 +5,7 @@
   import { goto } from '$app/navigation';
   import { onMount, afterUpdate } from 'svelte';
   import type { Collection, Flashcard } from '@prisma/client';
+  import { getLastStudiedTimestamp } from '$lib/services/collectionMetaService';
 
   interface PageData {
     collection: Collection;
@@ -17,6 +18,7 @@
   $: collection = data.collection;
   // Use a local reactive variable for flashcards to allow modification (e.g., on delete)
   let localFlashcards = data.flashcards ? [...data.flashcards] : [];
+  let lastStudiedTimestamp: number | null = null;
 
   // Update localFlashcards if data.flashcards changes from an external source (e.g. HMR, re-navigation)
   afterUpdate(() => {
@@ -83,6 +85,28 @@
     }
   }
 
+  function formatLastStudied(timestamp: number | undefined | null): string {
+    if (!timestamp) return 'Not studied yet';
+
+    const date = new Date(timestamp);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) {
+      return 'Studied today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Studied yesterday';
+    } else {
+      return `Last studied: ${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+  }
+
+  onMount(() => {
+    if (collection && typeof window !== 'undefined') { // collection comes from `data` prop
+      lastStudiedTimestamp = getLastStudiedTimestamp(collection.id);
+    }
+  });
 </script>
 
 <svelte:head>
@@ -103,8 +127,11 @@
   {#if collection}
     <div class="mb-6 p-4 md:p-6 bg-white rounded-lg shadow-lg">
       <h1 class="text-2xl md:text-3xl font-bold text-gray-800 mb-2">{collection.name}</h1>
-      <p class="text-sm text-gray-500 mb-4">
+      <p class="text-sm text-gray-500">
         Created on: {new Date(collection.createdAt).toLocaleDateString()}
+      </p>
+      <p class="text-sm text-gray-500 mb-4">
+        {formatLastStudied(lastStudiedTimestamp)}
       </p>
       <div class="flex flex-wrap gap-3 items-center">
         <a href="/admin/new?collectionId={collection.id}" class="px-4 py-2 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 transition-colors shadow-sm">

@@ -26,10 +26,12 @@
 		resetStudyState,
 		isFilteredViewActive, // Import new store state
 		filterFailedCards, // Import new actions
-		showAllCards
+		showAllCards,
+		saveProgressForCurrentCollection // Import saveProgressForCurrentCollection
 	} from '$lib/stores/studyStore';
 	import type { CollectionWithFlashcards, FlashcardStudy } from '$lib/stores/studyStore';
 	import Modal from '$lib/components/Modal.svelte'; // Import Modal
+	import { toast } from '$lib/toastStore'; // Import toast
 
 	let collections: Collection[] = []; // For selection dropdown
 	let selectedCollectionId: string | undefined = undefined;
@@ -277,7 +279,8 @@
 	});
 
 	onDestroy(() => {
-		resetStudyState(); // Clear study session state when component is destroyed
+		saveProgressForCurrentCollection(); // Save progress before resetting state
+		resetStudyState(); // Clear study session state from memory
 		if (feedbackTimeout) {
 			clearTimeout(feedbackTimeout);
 		}
@@ -302,6 +305,65 @@
 		// Optionally, could reset selectedCollectionId to undefined if we want the dropdown to reset.
 		// selectedCollectionId = undefined;
 		// resetStudyState(); // Or fully reset if picking new means starting fresh from selection
+	}
+
+	async function handleToggleDifficult() {
+		if (!$currentCard) return;
+
+		const originalIsDifficult = $currentCard.isDifficult;
+		const newIsDifficult = !originalIsDifficult;
+
+		// 1. Optimistic UI update
+		currentFlashcards.update(cards => {
+			const cardIdx = cards.findIndex(c => c.id === $currentCard!.id);
+			if (cardIdx !== -1) {
+				cards[cardIdx] = { ...cards[cardIdx], isDifficult: newIsDifficult };
+			}
+			return cards;
+		});
+
+		// 2. API call to persist
+		try {
+			const response = await fetch(`/api/flashcards/${$currentCard.id}`, {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ isDifficult: newIsDifficult })
+			});
+
+			if (response.ok) {
+				const updatedCardFromServer: PrismaFlashcard = await response.json();
+				// Confirm with server's response (especially if other fields could change)
+				currentFlashcards.update(cards => {
+					const cardIdx = cards.findIndex(c => c.id === $currentCard!.id);
+					if (cardIdx !== -1) {
+						cards[cardIdx] = { ...cards[cardIdx], ...updatedCardFromServer };
+					}
+					return cards;
+				});
+				toast.success(`Card marked as ${newIsDifficult ? 'difficult' : 'not difficult'}.`);
+			} else {
+				// API call failed, revert optimistic update
+				toast.error('Failed to update difficulty status.');
+				currentFlashcards.update(cards => {
+					const cardIdx = cards.findIndex(c => c.id === $currentCard!.id);
+					if (cardIdx !== -1) {
+						cards[cardIdx] = { ...cards[cardIdx], isDifficult: originalIsDifficult };
+					}
+					return cards;
+				});
+			}
+		} catch (err) {
+			toast.error('Error updating difficulty status.');
+			console.error('Error in handleToggleDifficult:', err);
+			// Revert optimistic update on network error
+			currentFlashcards.update(cards => {
+				const cardIdx = cards.findIndex(c => c.id === $currentCard!.id);
+				if (cardIdx !== -1) {
+					cards[cardIdx] = { ...cards[cardIdx], isDifficult: originalIsDifficult };
+				}
+				return cards;
+			});
+		}
 	}
 </script>
 
@@ -418,8 +480,21 @@
 						on:toggle={(e) => flipCard($currentCard!.id, e.detail.flipped)}
 					/>
 				</div>
-				<div class="mt-3 text-center text-xs text-gray-500">
-					Viewed: {$currentCard.timesViewed}, Correct: {$currentCard.timesCorrect}
+				<div class="mt-3 flex items-center justify-center text-xs text-gray-500">
+					<p class="mr-4">Viewed: {$currentCard.timesViewed}, Correct: {$currentCard.timesCorrect}</p>
+					<button
+						on:click={handleToggleDifficult}
+						title={$currentCard.isDifficult ? 'Mark as not difficult' : 'Mark as difficult'}
+						class:text-yellow-500={$currentCard.isDifficult}
+						class:hover:text-yellow-600={$currentCard.isDifficult}
+						class:text-gray-400={!$currentCard.isDifficult}
+						class:hover:text-gray-600={!$currentCard.isDifficult}
+						class="p-1 rounded-full transition-colors"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
+							<path fill-rule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.006z" clip-rule="evenodd" />
+						</svg>
+					</button>
 				</div>
 			{:else}
 				<p class="py-10 text-center text-red-500">

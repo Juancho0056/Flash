@@ -1,11 +1,13 @@
 import { writable, derived, get } from 'svelte/store'; // Added get here explicitly
 import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
 import { awardBadge, BadgeId } from '$lib/services/badgeService';
+import { loadStudyProgress, saveStudyProgress, clearStudyProgress, type StudyProgress } from '$lib/services/progressService';
+import { updateLastStudiedTimestamp } from '$lib/services/collectionMetaService';
 
 export interface FlashcardStudy extends PrismaFlashcard {
   flipped?: boolean;
   failedInSession?: boolean;
-  // Add any other UI-specific state here if needed in the future
+  isDifficult?: boolean; // New field
 }
 
 export interface CollectionWithFlashcards extends Collection {
@@ -71,28 +73,61 @@ export const totalFlashcards = derived(currentFlashcards, ($currentFlashcards) =
 
 
 // Function to load a new collection for study
-export function loadCollectionForStudy(collection: CollectionWithFlashcards | null) {
-  if (collection && collection.flashcards) {
-    const processedFlashcards = collection.flashcards.map(fc => ({
-      ...fc,
-      flipped: false, // Initialize flipped state
-      failedInSession: false, // Initialize failedInSession state
-      // Ensure stats are initialized if not present, or use values from collection
+export function loadCollectionForStudy(collectionData: CollectionWithFlashcards | null) {
+  if (collectionData && collectionData.flashcards) {
+    const savedProgress = loadStudyProgress(collectionData.id);
+
+    let initialFlashcards = collectionData.flashcards.map(fc => ({
+      ...fc, // fc from API should now include isDifficult due to prisma client update
+      flipped: false,
+      failedInSession: false,
+      isDifficult: fc.isDifficult || false, // Initialize isDifficult
       timesViewed: fc.timesViewed || 0,
       timesCorrect: fc.timesCorrect || 0,
     }));
-    activeCollection.set(collection); // Store the original collection
-    currentFlashcards.set(processedFlashcards); // These are the cards for study
-    currentIndex.set(0);
-    correctAnswers.set(0);
-    incorrectAnswers.set(0);
-    currentScore.set(0); // Reset score
-    sessionCompleted.set(false); // Reset session completed state
-    timerActive.set(true); // Or manage this based on user action
-    showOnlyFailed.set(false); // Reset legacy flag
-    isFilteredViewActive.set(false); // Reset filter view
+
+    activeCollection.set(collectionData);
+
+    // Check if progress should be loaded or if session should start fresh
+    if (savedProgress && !savedProgress.sessionCompleted) { // <<< MODIFIED CONDITION HERE
+      // Rehydrate from saved progress because it was not completed
+      currentIndex.set(savedProgress.currentIndex);
+      correctAnswers.set(savedProgress.correctAnswers);
+      incorrectAnswers.set(savedProgress.incorrectAnswers);
+      currentScore.set(savedProgress.currentScore);
+      sessionCompleted.set(false); // Start un-completed, even if saved one was (should not happen with new condition)
+
+      const savedFlashcardsState = new Map(savedProgress.flashcardsState.map(fs => [fs.id, fs]));
+      initialFlashcards = initialFlashcards.map(card => {
+        const savedCardState = savedFlashcardsState.get(card.id);
+        return {
+          ...card, // This includes isDifficult from the initial mapping
+          failedInSession: savedCardState?.failedInSession || card.failedInSession || false,
+        };
+      });
+      // console.log('Resuming progress for collection:', collectionData.id);
+    } else {
+      // No saved progress, or saved progress was for a completed session, so start fresh.
+      // If savedProgress existed but was completed, clear it now.
+      if (savedProgress && savedProgress.sessionCompleted) {
+        clearStudyProgress(collectionData.id);
+        // console.log('Cleared completed session progress for:', collectionData.id);
+      }
+      currentIndex.set(0);
+      correctAnswers.set(0);
+      incorrectAnswers.set(0);
+      currentScore.set(0);
+      sessionCompleted.set(false);
+      // `initialFlashcards` remains as freshly mapped with all `failedInSession: false`
+      // console.log('Starting fresh session for collection:', collectionData.id);
+    }
+    currentFlashcards.set(initialFlashcards);
+    timerActive.set(true);
+    showOnlyFailed.set(false);
+    isFilteredViewActive.set(false);
+
   } else {
-    resetStudyState(); // Resets all relevant store parts including isFilteredViewActive
+    resetStudyState();
   }
 }
 
@@ -309,3 +344,32 @@ export function resetStudyState() {
 }
 
 // Removed explicit get function as it's now imported from 'svelte/store'
+
+export function saveProgressForCurrentCollection(): void {
+  const collection = get(activeCollection);
+  if (!collection) return; // No active collection, nothing to save
+
+  const flashcardsToSaveState = get(currentFlashcards).map(fc => ({
+    id: fc.id,
+    failedInSession: fc.failedInSession || false,
+    // other per-card state if needed in future
+  }));
+
+  const currentTimestamp = Date.now(); // Define currentTimestamp here
+
+  const progressToSave: StudyProgress = {
+    collectionId: collection.id,
+    currentIndex: get(currentIndex),
+    correctAnswers: get(correctAnswers),
+    incorrectAnswers: get(incorrectAnswers),
+    currentScore: get(currentScore),
+    sessionCompleted: get(sessionCompleted),
+    flashcardsState: flashcardsToSaveState,
+    lastSavedTimestamp: currentTimestamp, // Save this for detailed session resume
+  };
+  saveStudyProgress(progressToSave); // From progressService
+
+  // Also update the separate lastStudiedTimestamp for easier access by other parts of the app
+  updateLastStudiedTimestamp(collection.id, currentTimestamp); // From collectionMetaService
+  // console.log(`Overall lastStudiedTimestamp updated for ${collection.id}`);
+}

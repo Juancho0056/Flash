@@ -27,4 +27,5 @@ model Flashcard {
   updatedAt    DateTime    @updatedAt
   timesViewed  Int         @default(0)
   timesCorrect Int         @default(0)
+  isDifficult Boolean     @default(false)
 }

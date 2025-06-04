@@ -5,6 +5,8 @@
 	import Card from '$lib/components/Card.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { toast } from '$lib/toastStore'; // Import toast store
+	import { getAllLastStudiedTimestamps } from '$lib/services/collectionMetaService';
+	// import type { CollectionTimestamps } from '$lib/services/collectionMetaService'; // Type import if needed
 
 	interface Flashcard extends PrismaFlashcard {
 		selected?: boolean;
@@ -19,11 +21,9 @@
 	let selectedCollection: CollectionWithCount | null = null;
 	let selectedFlashcardIdsForExport: string[] = [];
 	let exportLayout: 4 | 6 | 9 = 6;
-	// Remove old message variables if toasts replace them fully
-	// let errorMessage: string | null = null;
-	// let successMessage: string | null = null;
 	let isLoadingCollections = true;
 	let isLoadingFlashcards = false;
+	let collectionLastStudied: Record<string, number> = {};
 
 	let isModalOpen = false;
 	let modalConfig = { title: '', message: '', confirmText: 'Delete', itemType: '' };
@@ -190,8 +190,29 @@
 		}
 	}
 
-	onMount(() => {
-		fetchCollections();
+	function formatLastStudied(timestamp: number | undefined | null): string {
+		if (!timestamp) return 'Not studied yet';
+
+		const date = new Date(timestamp);
+		const today = new Date();
+		const yesterday = new Date(today);
+		yesterday.setDate(today.getDate() - 1);
+
+		if (date.toDateString() === today.toDateString()) {
+			return 'Studied today';
+		} else if (date.toDateString() === yesterday.toDateString()) {
+			return 'Studied yesterday';
+		} else {
+			// Simple date format, e.g., YYYY-MM-DD
+			return `Last studied: ${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+		}
+	}
+
+	onMount(async () => {
+		await fetchCollections();
+		if (typeof window !== 'undefined') {
+			collectionLastStudied = getAllLastStudiedTimestamps();
+		}
 	});
 </script>
 
@@ -248,6 +269,8 @@
 				>
 					<h2 class="text-xl font-semibold text-gray-800">{collection.name}</h2>
 					<p class="text-sm text-gray-600">{collection._count?.flashcards || 0} flashcard(s)</p>
+					{!-- New line for last studied date --}
+					<p class="text-xs text-gray-500 mt-1">{formatLastStudied(collectionLastStudied[collection.id])}</p>
 					<a
 						href="/collections/{collection.id}"
 						on:click|stopPropagation
