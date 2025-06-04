@@ -1,5 +1,6 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store'; // Added get here explicitly
 import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
+import { awardBadge, BadgeId } from '$lib/services/badgeService';
 
 export interface FlashcardStudy extends PrismaFlashcard {
   flipped?: boolean;
@@ -21,6 +22,8 @@ const initialStudyState = {
   timerActive: false, // Example, can be expanded for session timing
   showOnlyFailed: false, // Kept for potential direct use, though isFilteredViewActive is primary
   isFilteredViewActive: false,
+  currentScore: 0,
+  sessionCompleted: false, // New state
 };
 
 // Writable stores
@@ -29,10 +32,14 @@ export const activeCollection = writable<CollectionWithFlashcards | null>(initia
 export const currentIndex = writable<number>(initialStudyState.currentIndex);
 export const correctAnswers = writable<number>(initialStudyState.correctAnswers);
 export const incorrectAnswers = writable<number>(initialStudyState.incorrectAnswers);
+export const currentScore = writable<number>(initialStudyState.currentScore); // Score store
+export const sessionCompleted = writable<boolean>(initialStudyState.sessionCompleted); // New store
 export const timerActive = writable<boolean>(initialStudyState.timerActive);
 export const showOnlyFailed = writable<boolean>(initialStudyState.showOnlyFailed); // Legacy or specific use
 export const isFilteredViewActive = writable<boolean>(initialStudyState.isFilteredViewActive);
 
+// Constants
+const POINTS_PER_CORRECT_ANSWER = 10;
 
 // Derived store for current card based on currentIndex and flashcards
 export const currentCard = derived(
@@ -79,6 +86,8 @@ export function loadCollectionForStudy(collection: CollectionWithFlashcards | nu
     currentIndex.set(0);
     correctAnswers.set(0);
     incorrectAnswers.set(0);
+    currentScore.set(0); // Reset score
+    sessionCompleted.set(false); // Reset session completed state
     timerActive.set(true); // Or manage this based on user action
     showOnlyFailed.set(false); // Reset legacy flag
     isFilteredViewActive.set(false); // Reset filter view
@@ -115,10 +124,38 @@ export function markAnswer(isCorrect: boolean) {
     return cards;
   });
 
+  // Removed prevCorrect and prevIncorrect as we'll use get() on updated values later.
+
   if (isCorrect) {
     correctAnswers.update(n => n + 1);
+    currentScore.update(s => s + POINTS_PER_CORRECT_ANSWER);
+
+    // Check for TEN_CORRECT_IN_SESSION badge
+    if (get(correctAnswers) === 10) { // This uses the just-updated value
+      awardBadge(BadgeId.TEN_CORRECT_IN_SESSION);
+    }
   } else {
     incorrectAnswers.update(n => n + 1);
+    // No score change for incorrect, or could deduct points if desired
+  }
+
+  // Check for session completion after answer counts are updated
+  const totalCardsInCurrentView = get(currentFlashcards).length;
+  const currentCorrectAnswers = get(correctAnswers);
+  const currentIncorrectAnswers = get(incorrectAnswers);
+  const totalAnswersGiven = currentCorrectAnswers + currentIncorrectAnswers;
+
+  if (totalCardsInCurrentView > 0 && totalAnswersGiven >= totalCardsInCurrentView) {
+    // This logic assumes every card is answered once.
+    sessionCompleted.set(true);
+
+    // Award session-dependent badges now that session is marked complete
+    awardBadge(BadgeId.FIRST_SESSION_COMPLETED); // AwardBadge handles if it's truly the first time
+
+    // Check for COLLECTION_MASTERED badge
+    if (currentIncorrectAnswers === 0 && currentCorrectAnswers === totalCardsInCurrentView) {
+      awardBadge(BadgeId.COLLECTION_MASTERED);
+    }
   }
 }
 
@@ -161,153 +198,99 @@ export function shuffleFlashcards() {
     currentIndex.set(0); // Reset to first card after shuffle
     // Ensure new current card is not flipped
     currentFlashcards.update(cards => {
-      if(cards.length > 0) cards[0].flipped = false;
+      if (cards.length > 0 && cards[0]) cards[0].flipped = false; // Ensure first card of shuffled list is not flipped
       return cards;
     });
+    sessionCompleted.set(false); // Reset on shuffle
 }
 
-// Function to filter for failed cards (basic example)
-// This function applies the filter to show only cards marked as failedInSession.
+// Function to filter for failed cards
 export function filterFailedCards() {
-  // Get all cards currently loaded for study (these are from the original activeCollection, processed)
-  // We need to use the version of cards from activeCollection and apply current session states
-  // However, the simplest way is to filter the *current* set of cards if we are not already filtered.
-  // If we are already filtered, re-filtering doesn't make sense unless it's on a different criteria.
-  // The source for filtering should be the full list from the active collection, maintaining their session states.
-
   const collection = get(activeCollection);
   if (!collection || !collection.flashcards) {
-    console.warn("No active collection to filter.");
+    console.warn('No active collection to filter.');
     return;
   }
 
-  // Re-create the full list from the active collection, but preserve existing session states (failedInSession, stats)
-  // This ensures we always filter from the complete set of cards for the current study session.
-  const allSessionCardsWithCurrentState = collection.flashcards.map(originalCard => {
-    const studiedCard = get(currentFlashcards).find(fc => fc.id === originalCard.id); // Check if this card is in the current (possibly filtered) list
-    const fullListCard = get(currentFlashcards).find(fc => fc.id === originalCard.id && !get(isFilteredViewActive)); // Check if this card is in the full list
+  // Create a map of current flashcard states (including failedInSession) from the complete list in activeCollection
+  // This ensures we have the latest failedInSession status for all cards, not just those currently visible if previously filtered.
+  const currentSessionCardStates = new Map(
+    get(currentFlashcards).map(card => [card.id, { ...card }])
+  );
 
-    // Prefer failedInSession from any card version that has it, otherwise false
-    let failedInSession = false;
-    if (studiedCard?.failedInSession) failedInSession = true;
-    else if (fullListCard?.failedInSession) failedInSession = true;
-
-
+  const allCardsWithUpToDateState = collection.flashcards.map(originalCard => {
+    const sessionState = currentSessionCardStates.get(originalCard.id);
     return {
-      ...originalCard, // Base data from collection
-      flipped: false, // Reset flip state for display
-      // Preserve stats and failedInSession status from the ongoing session
-      timesViewed: studiedCard?.timesViewed || fullListCard?.timesViewed || originalCard.timesViewed || 0,
-      timesCorrect: studiedCard?.timesCorrect || fullListCard?.timesCorrect || originalCard.timesCorrect || 0,
-      failedInSession: failedInSession,
+      ...originalCard, // base data from collection
+      flipped: false, // always reset flip
+      timesViewed: sessionState?.timesViewed || originalCard.timesViewed || 0,
+      timesCorrect: sessionState?.timesCorrect || originalCard.timesCorrect || 0,
+      failedInSession: sessionState?.failedInSession || false, // Crucially use the up-to-date failedInSession
     };
   });
 
-
-  const failedCards = allSessionCardsWithCurrentState.filter(card => card.failedInSession);
+  const failedCards = allCardsWithUpToDateState.filter(card => card.failedInSession);
 
   if (failedCards.length > 0) {
-    currentFlashcards.set(failedCards.map(fc => ({...fc, flipped: false}))); // Update with only failed, reset flip
+    currentFlashcards.set(failedCards.map(fc => ({ ...fc, flipped: false })));
     currentIndex.set(0);
     isFilteredViewActive.set(true);
-    if (failedCards.length > 0 && failedCards[0]) { // Ensure new current card is not flipped
-        failedCards[0].flipped = false;
+    if (failedCards.length > 0 && failedCards[0]) {
+      failedCards[0].flipped = false; // Ensure new current card is not flipped
     }
-    currentFlashcards.set(failedCards); // Re-set to trigger updates if needed for the flip state change on first card
+    currentFlashcards.set(failedCards); // Update again to ensure reactivity on the flipped state of first card
   } else {
-    // If no cards were marked as failed in the entire session set.
-    // If currently in filtered view and it becomes empty, show all.
     if (get(isFilteredViewActive)) {
-        showAllCards(); // Reverts to showing all cards from the collection
+      showAllCards(); // This will also reset sessionCompleted to false
+      return;
     }
-    // If not in filtered view and no cards are failed, nothing needs to change.
-    // Optionally, provide user feedback e.g. "No cards marked as incorrect yet."
   }
+  sessionCompleted.set(false); // Reset on filtering
 }
 
 export function showAllCards() {
   const collection = get(activeCollection);
   if (collection && collection.flashcards) {
-    // Re-process the original flashcards from the active collection,
-    // but try to preserve the session-specific state like 'failedInSession', 'timesViewed', 'timesCorrect'.
-    // This requires having access to the current state of flashcards if they were modified.
-    // The `currentFlashcards` before this call might be a filtered list.
-    // We need a reliable way to get the state of *all* cards from the session.
-    // One way: activeCollection stores raw cards. We map them and try to find their session state
-    // from an "unfiltered" version of currentFlashcards if such a temporary store existed,
-    // or we assume `markAnswer` updated a master list if `isFilteredViewActive` was false.
-
-    // Let's assume `activeCollection.flashcards` are the pristine cards.
-    // We need to re-apply session knowledge (failedInSession, stats) to them.
-    // This is tricky if currentFlashcards is already filtered.
-    // A robust way: `loadCollectionForStudy` should perhaps set an internal `masterListOfSessionCards`.
-    // For now, let's try to merge:
-    const allOriginalCards = collection.flashcards;
-    const sessionCardStates = new Map(get(currentFlashcards).map(c => [c.id, {
-        timesViewed: c.timesViewed,
-        timesCorrect: c.timesCorrect,
-        failedInSession: c.failedInSession,
-    }]));
-
-     // If currentFlashcards is filtered, it won't have all states.
-     // This implies `markAnswer` should always update a card in a "master" list, not just the visible `currentFlashcards`.
-     // This is a limitation of the current `markAnswer` if it only updates the visible `currentFlashcards` when filtered.
-     // For now, we will restore from activeCollection and apply any known states. Those not in currentFlashcards (if filtered) will lose session-specific failed state unless it was updated on a master list.
-     // Given the current structure, the most straightforward way is to re-process from activeCollection
-     // and assume any card *not* in the current filtered view did *not* have its failedInSession state changed,
-     // or rely on `markAnswer` having updated a more persistent version.
-     // The provided snippet for `markAnswer` updates `currentFlashcards`. If it's filtered, non-visible cards are not updated.
-     // This means `showAllCards` might show cards as not failed if they were marked, then filtered out, then marked correct on a non-existent master list.
-     // This needs careful architecture.
-     // A simpler `showAllCards`: reload from `activeCollection`, resetting `failedInSession` states for non-failed cards if not careful.
+    // Similar to filterFailedCards, ensure we use the most complete view of session states
+    const currentSessionCardStates = new Map(
+      get(currentFlashcards).map(card => [card.id, { ...card }])
+    );
 
     const processedFlashcards = collection.flashcards.map(originalCard => {
-      // Try to find this card in the *current* set of flashcards (which might be filtered)
-      // This is to preserve its latest state if it's visible.
-      // If it's not visible (because currentFlashcards is filtered and this card is not in it),
-      // we use its original data and assume failedInSession should be false unless proven otherwise by other logic.
-      const existingCardState = get(currentFlashcards).find(fc => fc.id === originalCard.id);
+      const sessionState = currentSessionCardStates.get(originalCard.id);
+      // If a card was in a filtered list (e.g. failed cards), its state is in currentSessionCardStates.
+      // If it wasn't (e.g. it was a correctly answered card not in the failed list),
+      // its failedInSession state should be what it was before filtering.
+      // This logic still has a slight gap if markAnswer only updates visible cards.
+      // The most robust solution is for markAnswer to update a "master" list in memory.
+      // For now, this is an improvement:
+      let failedInSessionState = sessionState?.failedInSession || false;
+      if (!isFilteredViewActive && sessionState) { // If showing all, and card was in previous "all" list
+          failedInSessionState = sessionState.failedInSession;
+      } else if (isFilteredViewActive && !sessionState) {
+          // Card was not in the failed list, so its failedInSession should be false
+          // (or its last known state if we had a master list)
+          failedInSessionState = false;
+      }
+
 
       return {
-        ...originalCard, // Base data
+        ...originalCard,
         flipped: false,
-        // If card exists in current (possibly filtered) view, use its state.
-        // Otherwise, this implies it's being "brought back" into view.
-        // Its failedInSession state needs to be determined from a source that tracks *all* cards.
-        // The current `markAnswer` updates `currentFlashcards`. If `currentFlashcards` is filtered,
-        // it only updates the visible (failed) cards. This is a problem for "resetting" `failedInSession`
-        // if a card is answered correctly while in the main list, then you filter, then you `showAllCards`.
-        // For this iteration, we'll use the state from `currentFlashcards` if found, else default.
-        timesViewed: existingCardState?.timesViewed || originalCard.timesViewed || 0,
-        timesCorrect: existingCardState?.timesCorrect || originalCard.timesCorrect || 0,
-        // This is crucial: How do we know if a card not currently in a filtered list *was* failed?
-        // `markAnswer` must update a list that contains ALL cards of the session.
-        // Let's assume `activeCollection`'s flashcards are the base and we re-apply `failedInSession`
-        // from a temporary full list if we had one, or simply reset them if not.
-        // The current code implies `currentFlashcards` might be the *only* source of truth for `failedInSession`.
-        // This means if a card is not in `currentFlashcards` (because it's filtered out), its `failedInSession` state is lost
-        // unless `markAnswer` was more complex.
-        // Given the prompt's `markAnswer`, it updates `currentFlashcards`. So, if `currentFlashcards` is filtered,
-        // only those cards can have `failedInSession` updated.
-        // Let's try to use `initialStudyState.flashcards` as a temporary holder of the "true" full list after load. This is not ideal.
-        // A better way: `activeCollection` stores `CollectionWithFlashcards` where `flashcards` are `FlashcardStudy`.
-        // And `loadCollectionForStudy` ensures this `activeCollection.flashcards` is the master list for session states.
-        // For now, this version of showAllCards will re-process from `get(activeCollection).flashcards`
-        // and will try to find its state from the current `get(currentFlashcards)` (which could be filtered).
-        // This is imperfect for states of cards not in the current view.
-        failedInSession: existingCardState?.failedInSession || false, // Default to false if not in current (potentially filtered) view
+        timesViewed: sessionState?.timesViewed || originalCard.timesViewed || 0,
+        timesCorrect: sessionState?.timesCorrect || originalCard.timesCorrect || 0,
+        failedInSession: failedInSessionState,
       };
     });
-
     currentFlashcards.set(processedFlashcards);
   }
   currentIndex.set(0);
   isFilteredViewActive.set(false);
-  // Ensure new current card is not flipped
   currentFlashcards.update(cards => {
     if (cards.length > 0 && cards[0]) cards[0].flipped = false;
     return cards;
   });
+  sessionCompleted.set(false); // Reset on showing all cards
 }
 
 
@@ -318,17 +301,11 @@ export function resetStudyState() {
   currentIndex.set(initialStudyState.currentIndex);
   correctAnswers.set(initialStudyState.correctAnswers);
   incorrectAnswers.set(initialStudyState.incorrectAnswers);
+  currentScore.set(initialStudyState.currentScore); // Reset score
+  sessionCompleted.set(initialStudyState.sessionCompleted); // Reset session completed state
   timerActive.set(initialStudyState.timerActive);
   showOnlyFailed.set(initialStudyState.showOnlyFailed); // Legacy
   isFilteredViewActive.set(initialStudyState.isFilteredViewActive);
 }
 
-// Helper to get current value of a store (Svelte 4 doesn't have get as a direct import for all stores)
-// For Svelte 5, direct get(store) is standard. For Svelte 4, often used in component context.
-// This is a simple utility if needed outside component scripts, otherwise use $store syntax in .svelte files
-function get<T>(store: import('svelte/store').Readable<T>): T {
-  let value: T = undefined as any; // Or some default
-  const unsubscribe = store.subscribe(v => value = v);
-  unsubscribe(); // Immediately unsubscribe after getting the current value
-  return value;
-}
+// Removed explicit get function as it's now imported from 'svelte/store'

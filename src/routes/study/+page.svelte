@@ -13,6 +13,8 @@
 		incorrectAnswers,
 		// timerActive, // Assuming timerActive might be used later for UI features
 		currentCard,
+		currentScore,
+		sessionCompleted, // Import sessionCompleted
 		progressPercentage,
 		totalFlashcards,
 		loadCollectionForStudy,
@@ -27,12 +29,15 @@
 		showAllCards
 	} from '$lib/stores/studyStore';
 	import type { CollectionWithFlashcards, FlashcardStudy } from '$lib/stores/studyStore';
+	import Modal from '$lib/components/Modal.svelte'; // Import Modal
 
 	let collections: Collection[] = []; // For selection dropdown
 	let selectedCollectionId: string | undefined = undefined;
 	let errorMessage: string | null = null;
 	let isLoadingCollections = true;
 	let isLoadingFlashcards = false; // Local loading state for fetching collection details
+	let answerFeedback: 'correct' | 'incorrect' | null = null;
+	let feedbackTimeout: number | null = null;
 
 	async function fetchCollections() {
 		isLoadingCollections = true;
@@ -111,10 +116,20 @@
 
 	async function handleMarkAnswer(isCorrect: boolean) {
 		if (!$currentCard) return;
+		if ($currentCard.flipped) return; // Only allow marking if card is not flipped (defensive)
 
-		markAnswerStore(isCorrect); // Update store counts
+		// Clear previous timeout if any
+		if (feedbackTimeout) {
+			clearTimeout(feedbackTimeout);
+			feedbackTimeout = null;
+		}
 
-		const cardToUpdate = $currentCard;
+		answerFeedback = isCorrect ? 'correct' : 'incorrect';
+
+		markAnswerStore(isCorrect); // This updates store counts, score, and potentially session/badge logic
+
+		// API call to update backend
+		const cardToUpdate = { ...$currentCard }; // Capture its current state for API call, ensure it's the one being marked
 		const newTimesCorrect = cardToUpdate.timesCorrect + (isCorrect ? 1 : 0);
 		// Assuming timesViewed is already handled or not incremented on marking answer.
 		// If it should be, add: const newTimesViewed = cardToUpdate.timesViewed + 1;
@@ -151,6 +166,17 @@
 			console.warn('Error updating correct/incorrect stats via API:', err.message);
 		}
 		// Consider if auto-navigation is desired here, e.g., nextCard();
+
+		// Set timeout to clear feedback
+		feedbackTimeout = window.setTimeout(() => {
+			answerFeedback = null;
+			feedbackTimeout = null; // Clear the stored timeout ID
+		}, 750); // 750ms duration for feedback
+
+		// Optional: Auto-flip the card after marking and feedback
+		// if ($currentCard && $currentCard.id === cardToUpdate.id) { // Ensure current card is still the one we marked
+		//   flipCard($currentCard.id, true);
+		// }
 	}
 
 	async function handleNavigate(direction: 'next' | 'prev') {
@@ -217,7 +243,31 @@
 
 	onDestroy(() => {
 		resetStudyState(); // Clear study session state when component is destroyed
+		if (feedbackTimeout) {
+			clearTimeout(feedbackTimeout);
+		}
 	});
+
+	async function handleStudyAgain() {
+		if ($activeCollection && selectedCollectionId) {
+			// selectedCollectionId should still hold the ID of the current collection
+			// handleLoadCollectionForStudy uses selectedCollectionId to load
+			await handleLoadCollectionForStudy();
+		} else {
+			// Fallback or error if no active collection to study again
+			sessionCompleted.set(false); // Close modal
+			errorMessage = "Could not restart session: No active collection found.";
+		}
+		// loadCollectionForStudy (called by handleLoadCollectionForStudy) resets sessionCompleted in the store
+	}
+
+	function handleCloseSummary() {
+		sessionCompleted.set(false);
+		// User might want to select a new collection from the dropdown or navigate away.
+		// Optionally, could reset selectedCollectionId to undefined if we want the dropdown to reset.
+		// selectedCollectionId = undefined;
+		// resetStudyState(); // Or fully reset if picking new means starting fresh from selection
+	}
 </script>
 
 <svelte:head>
@@ -225,6 +275,16 @@
 </svelte:head>
 
 <div class="container mx-auto max-w-3xl p-4 md:p-6">
+	<Modal
+		bind:isOpen={$sessionCompleted}
+		title="Session Summary"
+		message={`Collection: ${$activeCollection?.name || 'N/A'}\nTotal Cards: ${$totalFlashcards}\nCorrect: ${$correctAnswers}\nIncorrect: ${$incorrectAnswers}\nFinal Score: ${$currentScore}`}
+		confirmText="Study Again (Same Collection)"
+		cancelText="Close / Pick New"
+		on:confirm={handleStudyAgain}
+		on:cancel={handleCloseSummary}
+	/>
+
 	<h1 class="mb-6 text-2xl font-bold text-gray-800 md:text-3xl">Study Mode</h1>
 
 	{#if errorMessage}
@@ -306,7 +366,15 @@
 
 
 			{#if $currentCard}
-				<div class="card-wrapper mx-auto" style="max-width: 500px; min-height: 300px;">
+				<div
+					class="card-wrapper mx-auto transition-all duration-300 ease-in-out"
+					class:border-green-500={answerFeedback === 'correct'}
+					class:border-red-500={answerFeedback === 'incorrect'}
+					class:shadow-green-xl={answerFeedback === 'correct'}
+					class:shadow-red-xl={answerFeedback === 'incorrect'}
+					class:border-4={answerFeedback !== null}
+					style="max-width: 500px; min-height: 300px;"
+				>
 					<Card
 						front={$currentCard.question}
 						back={$currentCard.answer}
@@ -325,7 +393,8 @@
 			{/if}
 
 			<div class="my-4 text-center">
-				<p class="text-lg font-semibold">Score: {$correctAnswers} Correct, {$incorrectAnswers} Incorrect</p>
+				<p class="text-xl font-bold text-indigo-600 mb-1">Score: {$currentScore}</p>
+				<p class="text-md">{$correctAnswers} Correct, {$incorrectAnswers} Incorrect</p>
 			</div>
 
 			<div
