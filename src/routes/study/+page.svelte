@@ -90,27 +90,62 @@
 	}
 
 	async function updateTimesViewedAPI(flashcardId: string, newTimesViewed: number) {
+		// Optimistically update the store first
+		currentFlashcards.update((cards) => {
+			const cardIdx = cards.findIndex((fc) => fc.id === flashcardId);
+			if (cardIdx !== -1) {
+				// Ensure we're creating a new object for reactivity if just changing a property
+				cards[cardIdx] = { ...cards[cardIdx], timesViewed: newTimesViewed };
+			}
+			return cards;
+		});
+
 		try {
 			const response = await fetch(`/api/flashcards/${flashcardId}`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ timesViewed: newTimesViewed })
 			});
+
 			if (response.ok) {
 				const updatedCardFromServer: PrismaFlashcard = await response.json();
-				// Update the specific card in the store
+				// Confirm with server's response.
+				// If server's timesViewed is different, it takes precedence.
 				currentFlashcards.update((cards) => {
 					const cardIdx = cards.findIndex((fc) => fc.id === flashcardId);
 					if (cardIdx !== -1) {
+						// Merge server data, ensuring our optimistic update is overwritten if server disagrees
+						// (though for timesViewed, it should match newTimesViewed if API is simple set)
 						cards[cardIdx] = { ...cards[cardIdx], ...updatedCardFromServer };
 					}
 					return cards;
 				});
 			} else {
-				console.warn('API failed to update timesViewed for card:', flashcardId);
+				// API call failed, revert optimistic update
+				console.warn('API failed to update timesViewed for card:', flashcardId, '. Reverting optimistic update.');
+				currentFlashcards.update((cards) => {
+					const cardIdx = cards.findIndex((fc) => fc.id === flashcardId);
+					if (cardIdx !== -1) {
+						// Revert to newTimesViewed - 1 (the value before optimistic increment)
+						cards[cardIdx] = { ...cards[cardIdx], timesViewed: newTimesViewed - 1 };
+					}
+					return cards;
+				});
+				// Optionally, set an errorMessage for the user
+				// errorMessage = `Failed to sync view count for card. Please try again.`;
 			}
 		} catch (err) {
-			console.warn('Failed to update timesViewed via API:', err);
+			console.warn('Failed to update timesViewed via API:', err, '. Reverting optimistic update.');
+			// Network or other error, revert optimistic update
+			currentFlashcards.update((cards) => {
+				const cardIdx = cards.findIndex((fc) => fc.id === flashcardId);
+				if (cardIdx !== -1) {
+					cards[cardIdx] = { ...cards[cardIdx], timesViewed: newTimesViewed - 1 };
+				}
+				return cards;
+			});
+			// Optionally, set an errorMessage for the user
+			// errorMessage = `Network error syncing view count. Please check your connection.`;
 		}
 	}
 
