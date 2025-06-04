@@ -8,6 +8,7 @@
 
 	let question = '';
 	let answer = '';
+	let pronunciation = '';
 	let imageUrl: string | undefined = undefined;
 	let selectedCollectionId: string | undefined = undefined;
 	let collections: Collection[] = [];
@@ -55,6 +56,7 @@
 			const flashcardData: Flashcard = await response.json();
 			question = flashcardData.question;
 			answer = flashcardData.answer;
+			pronunciation = flashcardData.pronunciation || '';
 			imageUrl = flashcardData.imageUrl || undefined;
 			selectedCollectionId = flashcardData.collectionId || undefined;
 		} catch (err: any) {
@@ -91,6 +93,7 @@
 		const body = {
 			question,
 			answer,
+			pronunciation: pronunciation.trim() !== '' ? pronunciation.trim() : null,
 			imageUrl: imageUrl && imageUrl.trim() !== '' ? imageUrl.trim() : null,
 			collectionId: selectedCollectionId || null
 		};
@@ -119,6 +122,7 @@
 			if (!isEditing) {
 				question = '';
 				answer = '';
+				pronunciation = '';
 				imageUrl = undefined;
 				// selectedCollectionId can be kept for convenience
 			} else {
@@ -197,7 +201,16 @@
 				placeholder="Enter the question..."
 			></textarea>
 		</div>
-
+		<div>
+			<label for="pronunciation" class="mb-1 block text-sm font-medium text-gray-700">Pronunciation (Optional)</label>
+			<input
+				id="pronunciation"
+				type="text"
+				bind:value={pronunciation}
+				class="mt-1 block w-full rounded-md border border-gray-300 p-3 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+				placeholder="e.g., /ˈmʌŋ.ki/ or monkey"
+			/>
+		</div>
 		<div>
 			<label for="answer" class="mb-1 block text-sm font-medium text-gray-700">Answer</label>
 			<textarea

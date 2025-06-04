@@ -163,7 +163,7 @@
         {#each localFlashcards as flashcard (flashcard.id)}
           <div class="flashcard-item border rounded-lg p-4 shadow-sm bg-white flex flex-col">
             <div class="flex-grow mb-3">
-              <Card front={flashcard.question} back={flashcard.answer} imageUrl={flashcard.imageUrl} />
+              <Card front={flashcard.question} back={flashcard.answer} imageUrl={flashcard.imageUrl} pronunciation={flashcard.pronunciation} />
             </div>
             <div class="text-xs text-gray-500 mb-3">
               <p>Viewed: {flashcard.timesViewed}, Correct: {flashcard.timesCorrect}</p>

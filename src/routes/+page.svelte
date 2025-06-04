@@ -269,7 +269,7 @@
 				>
 					<h2 class="text-xl font-semibold text-gray-800">{collection.name}</h2>
 					<p class="text-sm text-gray-600">{collection._count?.flashcards || 0} flashcard(s)</p>
-					{!-- New line for last studied date --}
+					
 					<p class="text-xs text-gray-500 mt-1">{formatLastStudied(collectionLastStudied[collection.id])}</p>
 					<a
 						href="/collections/{collection.id}"
@@ -352,6 +352,7 @@
 								<Card
 									front={flashcard.question}
 									back={flashcard.answer}
+									pronunciation={flashcard.pronunciation}
 									imageUrl={flashcard.imageUrl}
 								/>
 							</div>

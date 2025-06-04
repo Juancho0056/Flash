@@ -2,6 +2,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
+  export let pronunciation: string | null = null;
   export let front: string = 'Front Content'; // HTML or text for the front
   export let back: string = 'Back Content';   // HTML or text for the back
   export let imageUrl: string | null | undefined = null;
@@ -13,6 +14,12 @@
     flipped = !flipped;
     dispatch('toggle', { flipped });
   }
+  function speak(text: string) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US'; // Cambia a 'es-ES' si la pronunciación es en español
+    speechSynthesis.speak(utterance);
+  }
+
 </script>
 
 <div class="card-container" on:click={toggleCard} role="button" tabindex="0"
@@ -26,8 +33,21 @@
       {@html front}
     </div>
     <div class="card-face card-back">
-      {@html back}
-    </div>
+      <div class="text-center">
+        {@html back}
+        
+        {#if pronunciation}
+          <p class="mt-2 text-sm text-gray-600 italic">Pronunciation: {pronunciation}</p>
+          <button
+            type="button"
+            on:click|stopPropagation={() => speak(pronunciation)}
+            class="mt-2 rounded bg-indigo-600 px-3 py-1 text-sm text-white hover:bg-indigo-700"
+          >
+            🔊 Hear it
+          </button>
+        {/if}
+      </div>
+  </div>
   </div>
 </div>
 

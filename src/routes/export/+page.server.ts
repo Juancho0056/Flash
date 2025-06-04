@@ -70,8 +70,15 @@ export const load: PageServerLoad = async ({ url }) => {
       gutter,
       pages,
     };
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('Error fetching flashcards for printable view:', e);
+
+     let message = 'Failed to fetch flashcards for printing.';
+    if (e instanceof TypeError ) {
+      message = e.message;
+    } else if (e instanceof Error) {
+      message = e.message;
+    }
     // Return a structure that still allows the page to render an error message within the layout
     return {
         cards: [],
@@ -79,7 +86,7 @@ export const load: PageServerLoad = async ({ url }) => {
         margins,
         gutter,
         pages: [[]], // One empty page
-        loadError: e.message || 'Failed to fetch flashcards for printing.'
+        loadError: message || 'Failed to fetch flashcards for printing.'
     };
   }
 };

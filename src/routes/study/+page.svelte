@@ -5,6 +5,7 @@
 	import { page } from '$app/stores'; // Added page store
 	import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
 	import Card from '$lib/components/Card.svelte'; // Adjust path as necessary
+	import SessionStats from '$lib/components/SessionStats.svelte'; // Import SessionStats component
 	import {
 		currentFlashcards,
 		activeCollection,
@@ -27,11 +28,14 @@
 		isFilteredViewActive, // Import new store state
 		filterFailedCards, // Import new actions
 		showAllCards,
-		saveProgressForCurrentCollection // Import saveProgressForCurrentCollection
+		saveProgressForCurrentCollection, // Import saveProgressForCurrentCollection
+		incrementTimesViewedForCurrentCard
 	} from '$lib/stores/studyStore';
 	import type { CollectionWithFlashcards, FlashcardStudy } from '$lib/stores/studyStore';
 	import Modal from '$lib/components/Modal.svelte'; // Import Modal
 	import { toast } from '$lib/toastStore'; // Import toast
+	import { awardBadge, BadgeId } from '$lib/services/badgeService';
+	import { studyStats } from '$lib/stores/studyStats';
 
 	let collections: Collection[] = []; // For selection dropdown
 	let selectedCollectionId: string | undefined = undefined;
@@ -40,6 +44,49 @@
 	let isLoadingFlashcards = false; // Local loading state for fetching collection details
 	let answerFeedback: 'correct' | 'incorrect' | null = null;
 	let feedbackTimeout: number | null = null;
+	$: if ($currentCard) {
+		incrementTimesViewedForCurrentCard();
+	}
+
+	function handleIncorrectAnswer(isDifficult: boolean = false) {
+		studyStats.update(stats => {
+			stats.totalViewed++;
+			stats.totalIncorrect++;
+			stats.correctStreak = 0;
+			if (isDifficult) stats.difficultAnswered++;
+			return stats;
+		});
+	}
+
+	function handleCorrectAnswer() {
+		studyStats.update(stats => {
+			stats.totalViewed++;
+			stats.totalCorrect++;
+			stats.correctStreak++;
+
+			if (stats.correctStreak > stats.longestStreak) {
+				stats.longestStreak = stats.correctStreak;
+			}
+
+			// 🏆 Desbloqueo de insignias por hitos alcanzados
+			if (stats.totalCorrect === 1) {
+				awardBadge(BadgeId.FIRST_SESSION_COMPLETED);
+			}
+
+			if (stats.totalCorrect === 10) {
+			awardBadge(BadgeId.TEN_CORRECT_IN_SESSION);
+			}
+
+			if (
+			stats.totalViewed > 0 &&
+			stats.totalCorrect === stats.totalViewed
+			) {
+				awardBadge(BadgeId.COLLECTION_MASTERED);
+			}
+
+			return stats;
+		});
+	}
 
 	async function fetchCollections() {
 		isLoadingCollections = true;
@@ -92,16 +139,6 @@
 	}
 
 	async function updateTimesViewedAPI(flashcardId: string, newTimesViewed: number) {
-		// Optimistically update the store first
-		currentFlashcards.update((cards) => {
-			const cardIdx = cards.findIndex((fc) => fc.id === flashcardId);
-			if (cardIdx !== -1) {
-				// Ensure we're creating a new object for reactivity if just changing a property
-				cards[cardIdx] = { ...cards[cardIdx], timesViewed: newTimesViewed };
-			}
-			return cards;
-		});
-
 		try {
 			const response = await fetch(`/api/flashcards/${flashcardId}`, {
 				method: 'PUT',
@@ -110,111 +147,106 @@
 			});
 
 			if (response.ok) {
-				const updatedCardFromServer: PrismaFlashcard = await response.json();
-				// Confirm with server's response.
-				// If server's timesViewed is different, it takes precedence.
-				currentFlashcards.update((cards) => {
-					const cardIdx = cards.findIndex((fc) => fc.id === flashcardId);
-					if (cardIdx !== -1) {
-						// Merge server data, ensuring our optimistic update is overwritten if server disagrees
-						// (though for timesViewed, it should match newTimesViewed if API is simple set)
-						cards[cardIdx] = { ...cards[cardIdx], ...updatedCardFromServer };
+				const updated = await response.json();
+				currentFlashcards.update(cards => {
+					const idx = cards.findIndex(c => c.id === flashcardId);
+					if (idx !== -1) {
+						cards[idx] = { ...cards[idx], ...updated };
 					}
 					return cards;
 				});
-			} else {
-				// API call failed, revert optimistic update
-				console.warn('API failed to update timesViewed for card:', flashcardId, '. Reverting optimistic update.');
-				currentFlashcards.update((cards) => {
-					const cardIdx = cards.findIndex((fc) => fc.id === flashcardId);
-					if (cardIdx !== -1) {
-						// Revert to newTimesViewed - 1 (the value before optimistic increment)
-						cards[cardIdx] = { ...cards[cardIdx], timesViewed: newTimesViewed - 1 };
-					}
-					return cards;
-				});
-				// Optionally, set an errorMessage for the user
-				// errorMessage = `Failed to sync view count for card. Please try again.`;
 			}
 		} catch (err) {
-			console.warn('Failed to update timesViewed via API:', err, '. Reverting optimistic update.');
-			// Network or other error, revert optimistic update
-			currentFlashcards.update((cards) => {
-				const cardIdx = cards.findIndex((fc) => fc.id === flashcardId);
-				if (cardIdx !== -1) {
-					cards[cardIdx] = { ...cards[cardIdx], timesViewed: newTimesViewed - 1 };
-				}
-				return cards;
-			});
-			// Optionally, set an errorMessage for the user
-			// errorMessage = `Network error syncing view count. Please check your connection.`;
+			console.warn('Error syncing timesViewed:', err);
 		}
+	}
+
+	function markCardAsAnsweredInStore(isCorrect: boolean) {
+		currentFlashcards.update(cards => {
+			const idx = get(currentIndex);
+			const card = cards[idx];
+			if (!card || card.answeredInSession) return cards;
+
+			card.answeredInSession = true;
+
+			if (!isCorrect) {
+				card.failedInSession = true;
+				incorrectAnswers.update(n => n + 1);
+			} else {
+				correctAnswers.update(n => n + 1);
+				currentScore.update(n => n + 10);
+			}
+
+			return cards;
+		});
 	}
 
 	async function handleMarkAnswer(isCorrect: boolean) {
 		if (!$currentCard) return;
-		if ($currentCard.flipped) return; // Only allow marking if card is not flipped (defensive)
+		if ($currentCard.flipped || $currentCard.answeredInSession) return;
 
-		// Clear previous timeout if any
+		// Mostrar retroalimentación visual
 		if (feedbackTimeout) {
 			clearTimeout(feedbackTimeout);
 			feedbackTimeout = null;
 		}
-
 		answerFeedback = isCorrect ? 'correct' : 'incorrect';
 
-		markAnswerStore(isCorrect); // This updates store counts, score, and potentially session/badge logic
+		// 🔄 Actualiza estado en el store (una sola vez por sesión)
+		markCardAsAnsweredInStore(isCorrect);
 
-		// API call to update backend
-		const cardToUpdate = { ...$currentCard }; // Capture its current state for API call, ensure it's the one being marked
+		// 🎯 Actualiza estadísticas globales y posibles insignias
+		if (isCorrect) {
+			handleCorrectAnswer();
+		} else {
+			handleIncorrectAnswer($currentCard.isDifficult);
+		}
+
+		const cardToUpdate = { ...$currentCard };
 		const newTimesCorrect = cardToUpdate.timesCorrect + (isCorrect ? 1 : 0);
-		// Assuming timesViewed is already handled or not incremented on marking answer.
-		// If it should be, add: const newTimesViewed = cardToUpdate.timesViewed + 1;
 
+		// 🔗 Sincroniza con backend solo timesCorrect
 		try {
 			const response = await fetch(`/api/flashcards/${cardToUpdate.id}`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					timesCorrect: newTimesCorrect
-					// timesViewed: newTimesViewed // If applicable
-				})
+				body: JSON.stringify({ timesCorrect: newTimesCorrect })
 			});
+
 			if (response.ok) {
-				const updatedCardFromServer: PrismaFlashcard = await response.json();
-				// Update the specific card in the store with latest from server
-				currentFlashcards.update((cards) => {
-					const cardIdx = cards.findIndex((fc) => fc.id === cardToUpdate.id);
-					if (cardIdx !== -1) {
-						cards[cardIdx] = { ...cards[cardIdx], ...updatedCardFromServer };
+				const updated = await response.json();
+				currentFlashcards.update(cards => {
+					const idx = cards.findIndex(c => c.id === cardToUpdate.id);
+					if (idx !== -1) {
+						cards[idx] = { ...cards[idx], ...updated };
 					}
 					return cards;
 				});
 			} else {
-				const errData = await response.json().catch(() => ({ message: 'Failed to update stats' }));
-				console.warn(
-					'API failed to update correct/incorrect stats for card:',
-					cardToUpdate.id,
-					errData.message
-				);
-				// Optionally revert store counts if API fails, or notify user
+				console.warn(`Failed to update stats for card ${cardToUpdate.id}`);
 			}
-		} catch (err: any) {
-			console.warn('Error updating correct/incorrect stats via API:', err.message);
+		} catch (err) {
+			console.warn('Error updating stats via API:', (err as Error).message);
 		}
-		// Consider if auto-navigation is desired here, e.g., nextCard();
 
-		// Set timeout to clear feedback
+		const allAnswered = get(currentFlashcards).every(fc => fc.answeredInSession);
+		const allCorrect = get(currentFlashcards).every(fc => fc.answeredInSession && !fc.failedInSession);
+
+		if (allAnswered) {
+			sessionCompleted.set(true); // Muestra el resumen
+
+			if (allCorrect) {
+				awardBadge(BadgeId.COLLECTION_MASTERED);
+			}
+		}
+
+		// ⏳ Oculta retroalimentación después de un tiempo
 		feedbackTimeout = window.setTimeout(() => {
 			answerFeedback = null;
-			feedbackTimeout = null; // Clear the stored timeout ID
-		}, 750); // 750ms duration for feedback
-
-		// Optional: Auto-flip the card after marking and feedback
-		// if ($currentCard && $currentCard.id === cardToUpdate.id) { // Ensure current card is still the one we marked
-		//   flipCard($currentCard.id, true);
-		// }
+			feedbackTimeout = null;
+		}, 750);
 	}
+
 
 	async function handleNavigate(direction: 'next' | 'prev') {
 		if (direction === 'next') {
@@ -259,7 +291,7 @@
 		await fetchCollections(); // Wait for collections to be available for the dropdown
 
 		// Read collectionId from URL after component mounts and page store is accessible
-		const currentUrlParams = get($page).url.searchParams;
+		const currentUrlParams = get(page).url.searchParams;
 		const urlCollectionId = currentUrlParams.get('collectionId');
 
 		if (urlCollectionId) {
@@ -321,7 +353,7 @@
 			}
 			return cards;
 		});
-
+	
 		// 2. API call to persist
 		try {
 			const response = await fetch(`/api/flashcards/${$currentCard.id}`, {
@@ -422,6 +454,7 @@
 		<p class="text-gray-500">Loading flashcards...</p>
 	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
 		<div class="study-area rounded-lg bg-white p-6 shadow-xl md:p-8">
+			<SessionStats />
 			<div class="mb-4 flex items-center justify-between">
 				<p class="text-sm text-gray-600">
 					Card {$currentIndex + 1} of {$totalFlashcards}
@@ -472,13 +505,15 @@
 					class:border-4={answerFeedback !== null}
 					style="max-width: 500px; min-height: 300px;"
 				>
+					
 					<Card
 						front={$currentCard.question}
 						back={$currentCard.answer}
 						imageUrl={$currentCard.imageUrl}
+						pronunciation={$currentCard.pronunciation}
 						flipped={$currentCard.flipped || false}
 						on:toggle={(e) => flipCard($currentCard!.id, e.detail.flipped)}
-					/>
+						/>
 				</div>
 				<div class="mt-3 flex items-center justify-center text-xs text-gray-500">
 					<p class="mr-4">Viewed: {$currentCard.timesViewed}, Correct: {$currentCard.timesCorrect}</p>

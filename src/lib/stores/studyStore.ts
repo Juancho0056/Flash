@@ -7,7 +7,7 @@ import { updateLastStudiedTimestamp } from '$lib/services/collectionMetaService'
 export interface FlashcardStudy extends PrismaFlashcard {
   flipped?: boolean;
   failedInSession?: boolean;
-  isDifficult?: boolean; // New field
+  answeredInSession?: boolean; // ✅ NUEVO
 }
 
 export interface CollectionWithFlashcards extends Collection {
@@ -224,11 +224,10 @@ export function previousCard() {
 // Shuffle flashcards
 export function shuffleFlashcards() {
     currentFlashcards.update(cards => {
-        let shuffled = cards
+        return cards
             .map(value => ({ value, sort: Math.random() }))
             .sort((a, b) => a.sort - b.sort)
             .map(({ value }) => value);
-        return shuffled;
     });
     currentIndex.set(0); // Reset to first card after shuffle
     // Ensure new current card is not flipped
@@ -301,7 +300,7 @@ export function showAllCards() {
       // For now, this is an improvement:
       let failedInSessionState = sessionState?.failedInSession || false;
       if (!isFilteredViewActive && sessionState) { // If showing all, and card was in previous "all" list
-          failedInSessionState = sessionState.failedInSession;
+          failedInSessionState = sessionState.failedInSession || false;;
       } else if (isFilteredViewActive && !sessionState) {
           // Card was not in the failed list, so its failedInSession should be false
           // (or its last known state if we had a master list)
@@ -372,4 +371,19 @@ export function saveProgressForCurrentCollection(): void {
   // Also update the separate lastStudiedTimestamp for easier access by other parts of the app
   updateLastStudiedTimestamp(collection.id, currentTimestamp); // From collectionMetaService
   // console.log(`Overall lastStudiedTimestamp updated for ${collection.id}`);
+}
+export function incrementTimesViewedForCurrentCard() {
+  const index = get(currentIndex);
+  currentFlashcards.update(cards => {
+    if (cards[index]) {
+      // Copia el array para forzar cambio de referencia
+      const updatedCards = [...cards];
+      updatedCards[index] = {
+        ...cards[index],
+        timesViewed: (cards[index].timesViewed || 0) + 1
+      };
+      return updatedCards;
+    }
+    return cards;
+  });
 }

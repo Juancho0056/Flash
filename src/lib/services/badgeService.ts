@@ -1,9 +1,13 @@
+import  type { StudyStats } from '$lib/stores/studyStats'; // Adjust the import path as necessary
+
 // src/lib/services/badgeService.ts
 export enum BadgeId {
   FIRST_SESSION_COMPLETED = 'firstSessionCompleted',
   TEN_CORRECT_IN_SESSION = 'tenCorrectInSession',
-  COLLECTION_MASTERED = 'collectionMastered', // e.g., 100% correct in a session
-  // Add more badge IDs as needed
+  COLLECTION_MASTERED = 'collectionMastered',
+  STREAK_5 = 'streak5',
+  STREAK_10 = 'streak10',
+  CORRECT_50 = 'correct50',
 }
 
 export interface Badge {
@@ -44,7 +48,7 @@ export const allBadges: Badge[] = [
 
 // (Continuing in src/lib/services/badgeService.ts)
 import { writable, get } from 'svelte/store'; // Use get for synchronous access if needed outside components
-import { toastStore } from '$lib/toastStore'; // Assuming toastStore is in this path
+import {toast} from '$lib/toastStore'; // Assuming toastStore is in this path
 
 // Writable store to hold the state of badges, initialized from localStorage
 export const unlockedBadges = writable<Badge[]>(loadBadges());
@@ -92,11 +96,10 @@ export function awardBadge(badgeId: BadgeId): boolean {
       saveBadges(currentBadges);
 
       // Show toast notification
-      toastStore.addToast({
-        type: 'success',
-        message: `Badge Unlocked: ${currentBadges[badgeIndex].name}! ${currentBadges[badgeIndex].icon}`,
-        duration: 5000 // 5 seconds
-      });
+      toast.success(
+        `Badge Unlocked: ${currentBadges[badgeIndex].name}! ${currentBadges[badgeIndex].icon}`,
+        5000 // 5 seconds
+      );
       awardedNow = true;
     }
     return currentBadges;
@@ -131,4 +134,24 @@ if (typeof window !== 'undefined') {
     // loadBadges() is already called at writable initialization, so this might be redundant unless there's an issue with timing.
     // For safety, an explicit update can be done, or rely on the writable's initializer.
     // unlockedBadges.set(loadBadges());
+}
+
+export function checkAndAwardBadgesFromStats(stats: StudyStats): void {
+  // FIRST_SESSION_COMPLETED
+  if (stats.totalViewed >= 1) {
+    awardBadge(BadgeId.FIRST_SESSION_COMPLETED);
+  }
+
+  // TEN_CORRECT_IN_SESSION
+  if (stats.totalCorrect >= 10) {
+    awardBadge(BadgeId.TEN_CORRECT_IN_SESSION);
+  }
+
+  // COLLECTION_MASTERED (opcional, debe comprobarse en contexto de sesión por colección)
+  if (
+    stats.totalViewed > 0 &&
+    stats.totalCorrect === stats.totalViewed
+  ) {
+    awardBadge(BadgeId.COLLECTION_MASTERED);
+  }
 }
