@@ -364,7 +364,7 @@ export async function markAnswer(isCorrect: boolean) {
 		}
 
 		// 🧾 Guardar historial
-		_saveCompletedSessionToHistory(); // Call internal function
+		await _saveCompletedSessionToHistory(); // Call internal function
 	}
 
 	// SM-2 Logic Integration
@@ -426,7 +426,7 @@ export async function markAnswer(isCorrect: boolean) {
 		}
 	}
 
-  saveProgressForCurrentCollection(); // Save resumable progress
+  await saveProgressForCurrentCollection(); // Save resumable progress
 }
 
 async function _persistDifficultStatus(cardId: string, makeDifficult: boolean): Promise<void> {
