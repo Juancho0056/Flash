@@ -54,4 +54,5 @@ export const toast = {
     error: (message: string, duration?: number) => addToast(message, 'error', duration ?? TOAST_ERROR_DURATION),
     remove: removeToast,
     clear: clearAllToasts,
+    addToast: (type: ToastType, message: string, duration?: number) => addToast(message, type, duration),
 };

@@ -44,7 +44,7 @@ export const POST: RequestHandler = async ({ request }) => {
     if (flashcards.length < ids.length) {
       console.warn(`PDF Export: Not all requested card IDs were found. Found ${flashcards.length} out of ${ids.length}.`);
     }
-
+    console.log(`Exporting ${flashcards.length} flashcards to PDF with layout ${layout}`);
     const pdfBuffer = await generarPdfDeFlashcards(flashcards as Flashcard[], { layout, margins, gutter });
 
     if (!pdfBuffer || pdfBuffer.length === 0) {
@@ -60,9 +60,13 @@ export const POST: RequestHandler = async ({ request }) => {
       },
     });
 
-  } catch (e: any) {
+  }catch (e: unknown) {
     console.error('Error exporting flashcards to PDF:', e);
-    if (e.status) throw e; // Forward SvelteKit errors
+
+    if (e && typeof e === 'object' && 'status' in e) {
+      throw e as { status: number }; // Si estás seguro que `e` tiene `status`
+    }
+
     throw error(500, 'Failed to export flashcards to PDF.');
   }
 };

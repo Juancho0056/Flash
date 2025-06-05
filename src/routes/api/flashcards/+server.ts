@@ -2,7 +2,14 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { prisma } from '$lib/db';
 import { json, error } from '@sveltejs/kit';
-
+interface PrismaError {
+	code?: string;
+	meta?: {
+		cause?: string;
+		field_name?: string;
+	};
+	status?: number;
+}
 // GET /api/flashcards - Get all flashcards or filter by collectionId
 export const GET: RequestHandler = async ({ url }) => {
   try {
@@ -30,44 +37,57 @@ export const GET: RequestHandler = async ({ url }) => {
       });
     }
     return json(flashcards);
-  } catch (e: any) {
-    console.error('Error fetching flashcards:', e);
-    if (e.status) throw e; // Re-throw SvelteKit HTTP errors
-    throw error(500, 'Failed to fetch flashcards');
+  } catch (e: unknown) {
+    console.error('Error fetching flashcards :', e);
+
+    if (e && typeof e === 'object' && 'status' in e) {
+      throw e as { status: number }; 
+    }
+
+    throw error(500, 'Failed to fetch flashcards.');
   }
 };
 
 // POST /api/flashcards - Create a new flashcard
 export const POST: RequestHandler = async ({ request }) => {
-  try {
-    const body = await request.json();
-    const { question, answer, imageUrl, collectionId } = body;
+	const body = await request.json(); // se mueve fuera del try para usar en el catch si falla Prisma
 
-    if (!question || !answer) {
-      throw error(400, 'Question and answer are required');
-    }
+	try {
+		const { question, answer, imageUrl, collectionId } = body;
 
-    const newFlashcard = await prisma.flashcard.create({
-      data: {
-        question,
-        answer,
-        imageUrl: imageUrl || null,
-        collectionId: collectionId || null,
-      },
-    });
-    return json(newFlashcard, { status: 201 });
-  } catch (e: any) {
-    console.error('Error creating flashcard:', e);
-    if (e.status) {
-      throw e;
-    }
-    if (e.code === 'P2025' && e.meta?.cause?.includes('Collection')) { // Error from relation check
-         throw error(400, `Collection with ID ${body.collectionId} not found.`);
-    }
-    // P2003: Foreign key constraint failed on the field: `collectionId`
-    if (e.code === 'P2003' && e.meta?.field_name?.includes('collectionId')) {
-        throw error(400, `Collection with ID ${body.collectionId} not found.`);
-    }
-    throw error(500, 'Failed to create flashcard');
-  }
+		if (!question || !answer) {
+			throw error(400, 'Question and answer are required');
+		}
+
+		const newFlashcard = await prisma.flashcard.create({
+			data: {
+				question,
+				answer,
+				imageUrl: imageUrl || null,
+				collectionId: collectionId || null
+			}
+		});
+
+		return json(newFlashcard, { status: 201 });
+	} catch (e: unknown) {
+		console.error('Error creating flashcard:', e);
+
+		if (typeof e === 'object' && e !== null) {
+			const err = e as PrismaError;
+
+			if (err.status) {
+				throw error(err.status, 'Unexpected error');
+			}
+
+			if (err.code === 'P2025' && err.meta?.cause?.includes('Collection')) {
+				throw error(400, `Collection with ID ${body.collectionId} not found.`);
+			}
+
+			if (err.code === 'P2003' && err.meta?.field_name?.includes('collectionId')) {
+				throw error(400, `Collection with ID ${body.collectionId} not found.`);
+			}
+		}
+
+		throw error(500, 'Failed to create flashcard');
+	}
 };

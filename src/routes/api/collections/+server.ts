@@ -3,52 +3,82 @@ import type { RequestHandler } from '@sveltejs/kit';
 import { prisma } from '$lib/db';
 import { json, error } from '@sveltejs/kit';
 
+interface PrismaError {
+	code?: string;
+	meta?: {
+		target?: string[]; // según Prisma, meta.target es un array de strings
+	};
+}
+
+interface SvelteKitError extends Error {
+	status?: number;
+}
+
 // GET /api/collections - Get all collections
 export const GET: RequestHandler = async () => {
-  try {
-    const collections = await prisma.collection.findMany({
-      include: { _count: { select: { flashcards: true } } }, // Include count of flashcards
-    });
-    return json(collections);
-  } catch (e) {
-    console.error('Error fetching collections:', e);
-    throw error(500, 'Failed to fetch collections');
-  }
+	try {
+		const collections = await prisma.collection.findMany({
+			include: { _count: { select: { flashcards: true } } },
+		});
+		return json(collections);
+	} catch (e: unknown) {
+		console.error('Error fetching collections:', e);
+		throw error(500, 'Failed to fetch collections');
+	}
 };
 
 // POST /api/collections - Create a new collection
 export const POST: RequestHandler = async ({ request }) => {
-  try {
-    const body = await request.json();
-    const { name } = body;
+	try {
+		const body: { name?: string } = await request.json();
+		const { name } = body;
 
-    if (!name) {
-      throw error(400, 'Collection name is required');
-    }
+		if (!name) {
+			throw error(400, 'Collection name is required');
+		}
 
-    // It's better to rely on Prisma's unique constraint error (P2002)
-    // than to do a separate findUnique check, to avoid race conditions.
-    // However, the explicit check is kept here as per the generated code's initial thought.
-    // const existingCollection = await prisma.collection.findUnique({
-    //     where: { name },
-    // });
-    // if (existingCollection) {
-    //     throw error(409, `Collection with name "${name}" already exists.`);
-    // }
+		const newCollection = await prisma.collection.create({
+			data: { name },
+		});
 
-    const newCollection = await prisma.collection.create({
-      data: {
-        name,
-      },
-    });
-    return json(newCollection, { status: 201 });
-  } catch (e: any) {
-    console.error('Error creating collection:', e);
-    if (e.status) throw e; // Forward SvelteKit errors
-    // Handle Prisma unique constraint violation for the 'name' field
-    if (e.code === 'P2002' && e.meta?.target?.includes('name')) {
-        throw error(409, `Collection with name "${body.name}" already exists.`);
-    }
-    throw error(500, 'Failed to create collection');
-  }
+		return json(newCollection, { status: 201 });
+	} catch (e: unknown) {
+		console.error('Error creating collection:', e);
+
+		// Si es un error de SvelteKit con status
+		if (e instanceof Error && 'status' in e && typeof (e as SvelteKitError).status === 'number') {
+			throw e;
+		}
+
+		// Si es un error de Prisma por conflicto único
+		if (
+			typeof e === 'object' &&
+			e !== null &&
+			(codeIs(e, 'P2002')) &&
+			hasNameConstraint(e)
+		) {
+			throw error(409, 'Collection name already exists.');
+		}
+
+		throw error(500, 'Failed to create collection');
+	}
 };
+
+// Helpers
+function codeIs(e: unknown, expected: string): e is PrismaError {
+	return typeof e === 'object' && e !== null && 'code' in e && (e as PrismaError).code === expected;
+}
+
+function hasNameConstraint(e: unknown): e is PrismaError {
+	if (
+		typeof e === 'object' &&
+		e !== null &&
+		'meta' in e
+	) {
+		const meta = (e as PrismaError).meta;
+		if (meta && Array.isArray(meta.target)) {
+			return meta.target.includes('name');
+		}
+	}
+	return false;
+}

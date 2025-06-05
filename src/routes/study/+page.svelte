@@ -1,25 +1,110 @@
-<!-- src/routes/study/index.svelte -->
+<!-- src/routes/study/+page.svelte -->
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
+	import { get } from 'svelte/store'; // Added get
+	import { page } from '$app/stores'; // Added page store
 	import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
 	import Card from '$lib/components/Card.svelte'; // Adjust path as necessary
+	import SessionStats from '$lib/components/SessionStats.svelte'; // Import SessionStats component
+	import { tick } from 'svelte';
+	import {
+		currentFlashcards,
+		activeCollection,
+		currentIndex,
+		correctAnswers,
+		incorrectAnswers,
+		// timerActive, // Assuming timerActive might be used later for UI features
+		currentCard,
+		currentScore,
+		sessionCompleted, // Import sessionCompleted
+		progressPercentage,
+		totalFlashcards,
+		loadCollectionForStudy,
+		flipCard,
+		markAnswer,
+		nextCard,
+		previousCard,
+		shuffleFlashcards,
+		resetStudyState,
+		isFilteredViewActive, // Import new store state
+		isUnansweredOnly,
+		filterFailedCards, // Import new actions
+		showAllCards,
+		saveProgressForCurrentCollection, // Import saveProgressForCurrentCollection
+		incrementTimesViewedForCurrentCard,
+		filterUnansweredCards,
+		setUnansweredOnlyView,
+		isReviewMode,
+		incrementTimesViewedFor,
+		showOnlyFailed,
+		restartSessionForCurrentCollection
+	} from '$lib/stores/studyStore';
+	import type { CollectionWithFlashcards, FlashcardStudy } from '$lib/stores/studyStore';
+	import Modal from '$lib/components/Modal.svelte'; // Import Modal
+	import { toast } from '$lib/toastStore'; // Import toast
+	import { awardBadge, BadgeId } from '$lib/services/badgeService';
+	import { afterUpdate } from 'svelte'; // Import afterUpdate for reactive updates
 
-	interface FlashcardStudy extends PrismaFlashcard {
-		flipped?: boolean; // UI state for the card component
-	}
+	let hasShownPerfectBadgeMessage = false;
+	let showBadgeMessage = false;
 
-	interface CollectionWithFlashcards extends Collection {
-		flashcards: FlashcardStudy[];
-	}
-
-	let collections: Collection[] = []; // Just names and IDs for selection
+	let collections: Collection[] = []; // For selection dropdown
 	let selectedCollectionId: string | undefined = undefined;
-	let studyCollection: CollectionWithFlashcards | null = null;
-	let currentCardIndex = 0;
-
 	let errorMessage: string | null = null;
 	let isLoadingCollections = true;
-	let isLoadingFlashcards = false;
+	let isLoadingFlashcards = false; // Local loading state for fetching collection details
+	let answerFeedback: 'correct' | 'incorrect' | null = null;
+	let feedbackTimeout: number | null = null;
+	$: if ($currentCard) {
+		incrementTimesViewedForCurrentCard();
+	}
+	let showModal = false; // For session summary modal
+
+	$: showModal = $sessionCompleted && !$isFilteredViewActive;
+	sessionCompleted.subscribe((value) => {
+		console.log('🧠 sessionCompleted changed to:', value, 'at', new Date().toISOString());
+	});
+
+	sessionCompleted.subscribe((value) => {
+		console.log('🧠 sessionCompleted changed to:', value, 'at', new Date().toISOString());
+		console.trace(); // imprime quién cambió el valor
+	});
+
+	afterUpdate(async () => {
+		if (hasShownPerfectBadgeMessage || showBadgeMessage) return;
+
+		await tick(); // Espera que todo se reactive
+
+		const completed = get(sessionCompleted);
+		const cards = get(currentFlashcards);
+
+		if (!completed || cards.length === 0) return;
+
+		const allCorrect = cards.every((fc) => fc.answeredInSession && !fc.failedInSession);
+
+		if (allCorrect) {
+			console.log('🏅 Mostrando mensaje de logro por colección perfecta');
+			showBadgeMessage = true;
+			hasShownPerfectBadgeMessage = true;
+		}
+	});
+
+	async function handleFilterUnansweredCards() {
+		filterUnansweredCards();
+		setUnansweredOnlyView(true); // Set the view to unanswered only
+		if ($currentCard) {
+			await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
+		}
+	}
+
+	async function handleFilterFailedCards() {
+		filterFailedCards(); // This action might change currentFlashcards and currentIndex
+		isFilteredViewActive.set(true); // Set the filtered view active
+		if ($currentCard) {
+			// If filter results in a card being shown, update its timesViewed
+			await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
+		}
+	}
 
 	async function fetchCollections() {
 		isLoadingCollections = true;
@@ -40,16 +125,13 @@
 		}
 	}
 
-	async function loadFlashcardsForStudy() {
+	async function handleLoadCollectionForStudy() {
 		if (!selectedCollectionId) {
-			studyCollection = null;
-			currentCardIndex = 0;
+			resetStudyState();
 			return;
 		}
 		isLoadingFlashcards = true;
 		errorMessage = null;
-		studyCollection = null; // Clear previous collection data
-		currentCardIndex = 0;
 
 		try {
 			const response = await fetch(`/api/collections/${selectedCollectionId}`);
@@ -60,28 +142,15 @@
 				throw new Error(errData.message);
 			}
 			const fullCollection: CollectionWithFlashcards = await response.json();
-
-			if (fullCollection && fullCollection.flashcards) {
-				studyCollection = {
-					...fullCollection,
-					flashcards: fullCollection.flashcards.map((fc) => ({
-						...fc,
-						flipped: false,
-						timesViewed: fc.timesViewed || 0,
-						timesCorrect: fc.timesCorrect || 0
-					}))
-				};
-				if (studyCollection.flashcards.length > 0) {
-					await updateTimesViewedAPI(
-						studyCollection.flashcards[0].id,
-						studyCollection.flashcards[0].timesViewed + 1
-					);
-				}
-			} else {
-				studyCollection = { ...fullCollection, flashcards: [] }; // Ensure flashcards is an array
+			loadCollectionForStudy(fullCollection);
+			await tick(); // 🔁 espera reactividad
+			if ($currentCard) {
+				incrementTimesViewedFor($currentCard.id);
+				await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
 			}
 		} catch (err: any) {
 			errorMessage = err.message;
+			resetStudyState(); // Reset store if loading fails
 		} finally {
 			isLoadingFlashcards = false;
 		}
@@ -94,86 +163,260 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ timesViewed: newTimesViewed })
 			});
+
 			if (response.ok) {
-				const updatedCard = await response.json();
-				if (studyCollection) {
-					const cardIdx = studyCollection.flashcards.findIndex((fc) => fc.id === flashcardId);
-					if (cardIdx !== -1) {
-						studyCollection.flashcards[cardIdx].timesViewed = updatedCard.timesViewed;
-						studyCollection.flashcards = [...studyCollection.flashcards];
+				const updated = await response.json();
+				currentFlashcards.update((cards) => {
+					const idx = cards.findIndex((c) => c.id === flashcardId);
+					if (idx !== -1) {
+						cards[idx] = {
+							...cards[idx], // 🟢 conserva flags locales como answeredInSession
+							timesViewed: updated.timesViewed // 🟢 solo actualiza lo necesario
+						};
 					}
-				}
+					return cards;
+				});
 			}
 		} catch (err) {
-			console.warn('Failed to update timesViewed via API:', err);
+			console.warn('Error syncing timesViewed:', err);
 		}
 	}
 
-	async function updateCorrectIncorrectAPI(isCorrect: boolean) {
-		if (!studyCollection || !studyCollection.flashcards[currentCardIndex]) return;
+	async function handleMarkAnswer(isCorrect: boolean) {
+		if (
+			!$currentCard ||
+			$currentCard.flipped ||
+			($currentCard.answeredInSession && !$currentCard.failedInSession)
+		) {
+			console.log($currentCard);
+			console.warn('Cannot mark answer: card not available or already answered.');
+			return;
+		}
 
-		const card = studyCollection.flashcards[currentCardIndex];
-		const newTimesCorrect = card.timesCorrect + (isCorrect ? 1 : 0);
-		// timesViewed is handled when card is first shown or if we want to increment it here too
-		// const newTimesViewed = card.timesViewed + 1; // if counting this interaction as a view
+		// feedback visual
+		if (feedbackTimeout) {
+			clearTimeout(feedbackTimeout);
+			feedbackTimeout = null;
+		}
+		answerFeedback = isCorrect ? 'correct' : 'incorrect';
 
+		// 👉 usar función del store
+		markAnswer(isCorrect);
+
+		// API update de estadísticas
+		if (!get(isReviewMode)) {
+			const cardToUpdate = { ...$currentCard };
+			const newTimesCorrect = cardToUpdate.timesCorrect + (isCorrect ? 1 : 0);
+			try {
+				await fetch(`/api/flashcards/${cardToUpdate.id}`, {
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ timesCorrect: newTimesCorrect })
+				});
+			} catch (err) {
+				console.warn('Error updating stats via API:', err);
+			}
+		}
+
+		// fin de sesión si todas respondidas
+		const allAnswered = get(currentFlashcards).every((fc) => fc.answeredInSession);
+		const allCorrect = get(currentFlashcards).every(
+			(fc) => fc.answeredInSession && !fc.failedInSession
+		);
+
+		if (allAnswered) {
+			sessionCompleted.set(true);
+			if (allCorrect) {
+				awardBadge(BadgeId.COLLECTION_MASTERED);
+			}
+		}
+
+		feedbackTimeout = window.setTimeout(() => {
+			answerFeedback = null;
+			feedbackTimeout = null;
+		}, 750);
+	}
+
+	async function handleNavigate(direction: 'next' | 'prev') {
+		if (direction === 'next') {
+			nextCard();
+		} else {
+			previousCard();
+		}
+		// When card changes, update its timesViewed
+		if ($currentCard) {
+			// The currentCard is reactive, so it should be the new card after navigation
+			// Ensure its flipped state is reset (handled by store's nextCard/previousCard)
+			// And update timesViewed
+			await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
+		}
+	}
+
+	async function handleShuffle() {
+		shuffleFlashcards();
+		if ($currentCard) {
+			// Ensure the new current card (after shuffle) has its timesViewed updated.
+			await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
+		}
+	}
+
+	async function handleShowAllCards() {
+		showAllCards(); // This action will change currentFlashcards and currentIndex
+		setUnansweredOnlyView(false);
+	}
+	onMount(() => {
+		const interval = setInterval(() => {
+			saveProgressForCurrentCollection();
+		}, 10000); // cada 10 segundos
+
+		return () => clearInterval(interval); // limpieza al desmontar
+	});
+	onMount(async () => {
+		// Make onMount async to await fetchCollections
+		await fetchCollections(); // Wait for collections to be available for the dropdown
+		console.log('🔁 currentCard after load:', $currentCard);
+		// Read collectionId from URL after component mounts and page store is accessible
+		const currentUrlParams = get(page).url.searchParams;
+		const urlCollectionId = currentUrlParams.get('collectionId');
+
+		if (urlCollectionId) {
+			// Check if this collection ID exists in the fetched collections
+			const collectionExists = collections.some((c) => c.id === urlCollectionId);
+			if (collectionExists) {
+				if (urlCollectionId !== selectedCollectionId) {
+					selectedCollectionId = urlCollectionId; // This will also update the select dropdown's display
+					console.log(`Loading collection for study: ${urlCollectionId}`);
+					await handleLoadCollectionForStudy(); // Load the collection
+				}
+			} else {
+				errorMessage = `Collection with ID ${urlCollectionId} not found. Please select one from the list.`;
+				// Optionally clear selectedCollectionId or leave it to show in dropdown if it was an invalid direct link
+				// selectedCollectionId = undefined; // This would reset the dropdown to '-- Select Collection --'
+			}
+		}
+	});
+
+	onDestroy(() => {
+		saveProgressForCurrentCollection(); // Save progress before resetting state
+		resetStudyState(); // Clear study session state from memory
+		if (feedbackTimeout) {
+			clearTimeout(feedbackTimeout);
+		}
+	});
+
+	async function handleStudyAgain() {
+		const allAnswered = $correctAnswers + $incorrectAnswers === $totalFlashcards;
+		const allCorrect = $correctAnswers === $totalFlashcards;
+		console.log('handleStudyAgain called');
+		console.log('allAnswered:', allAnswered);
+		console.log('allCorrect:', allCorrect);
+
+		isReviewMode.set(allAnswered && allCorrect);
+
+		if ($activeCollection && selectedCollectionId && !isReviewMode) {
+			// selectedCollectionId should still hold the ID of the current collection
+			// handleLoadCollectionForStudy uses selectedCollectionId to load
+			await handleLoadCollectionForStudy();
+		} else if ($activeCollection && selectedCollectionId && isReviewMode) {
+			// Fallback or error if no active collection to study again
+			sessionCompleted.set(false); // Close modal
+		} else {
+			// If no collection is selected, reset the study state
+			//resetStudyState();
+			errorMessage = 'No collection selected. Please choose a collection to study.';
+		}
+		// loadCollectionForStudy (called by handleLoadCollectionForStudy) resets sessionCompleted in the store
+	}
+
+	function handleCloseSummary() {
+		sessionCompleted.set(false);
+		// User might want to select a new collection from the dropdown or navigate away.
+		// Optionally, could reset selectedCollectionId to undefined if we want the dropdown to reset.
+		// selectedCollectionId = undefined;
+		// resetStudyState(); // Or fully reset if picking new means starting fresh from selection
+	}
+
+	async function handleToggleDifficult() {
+		if (!$currentCard) return;
+
+		const originalIsDifficult = $currentCard.isDifficult;
+		const newIsDifficult = !originalIsDifficult;
+
+		// 1. Optimistic UI update
+		currentFlashcards.update((cards) => {
+			const cardIdx = cards.findIndex((c) => c.id === $currentCard!.id);
+			if (cardIdx !== -1) {
+				cards[cardIdx] = { ...cards[cardIdx], isDifficult: newIsDifficult };
+			}
+			return cards;
+		});
+
+		// 2. API call to persist
 		try {
-			const response = await fetch(`/api/flashcards/${card.id}`, {
+			const response = await fetch(`/api/flashcards/${$currentCard.id}`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ timesCorrect: newTimesCorrect /*, timesViewed: newTimesViewed */ })
+				body: JSON.stringify({ isDifficult: newIsDifficult })
 			});
+
 			if (response.ok) {
 				const updatedCardFromServer: PrismaFlashcard = await response.json();
-				studyCollection.flashcards[currentCardIndex] = {
-					...card, // keep flipped state
-					...updatedCardFromServer // update with server data
-				};
-				studyCollection.flashcards = [...studyCollection.flashcards];
+				// Confirm with server's response (especially if other fields could change)
+				currentFlashcards.update((cards) => {
+					const cardIdx = cards.findIndex((c) => c.id === $currentCard!.id);
+					if (cardIdx !== -1) {
+						cards[cardIdx] = { ...cards[cardIdx], ...updatedCardFromServer };
+					}
+					return cards;
+				});
+				toast.success(`Card marked as ${newIsDifficult ? 'difficult' : 'not difficult'}.`);
 			} else {
-				const errData = await response.json().catch(() => ({ message: 'Failed to update stats' }));
-				console.warn(
-					'Failed to update correct/incorrect stats for card:',
-					card.id,
-					errData.message
-				);
+				// API call failed, revert optimistic update
+				toast.error('Failed to update difficulty status.');
+				currentFlashcards.update((cards) => {
+					const cardIdx = cards.findIndex((c) => c.id === $currentCard!.id);
+					if (cardIdx !== -1) {
+						cards[cardIdx] = { ...cards[cardIdx], isDifficult: originalIsDifficult };
+					}
+					return cards;
+				});
 			}
-		} catch (err: any) {
-			console.warn('Error updating correct/incorrect stats:', err.message);
-		}
-		// navigateCard(1); // Optionally auto-navigate after marking
-	}
-
-	function navigateCard(direction: 1 | -1) {
-		if (!studyCollection || studyCollection.flashcards.length === 0) return;
-
-		let newIndex = currentCardIndex + direction;
-		if (newIndex >= studyCollection.flashcards.length) newIndex = 0;
-		else if (newIndex < 0) newIndex = studyCollection.flashcards.length - 1;
-
-		currentCardIndex = newIndex;
-
-		// Reset flipped state for the new card and update timesViewed
-		const newCard = studyCollection.flashcards[currentCardIndex];
-		newCard.flipped = false; // Always show front first on new card
-		updateTimesViewedAPI(newCard.id, newCard.timesViewed + 1); // Increment and update via API
-
-		studyCollection.flashcards = [...studyCollection.flashcards]; // Trigger Svelte reactivity
-	}
-
-	function handleCardToggle(event: CustomEvent<{ flipped: boolean }>, cardId: string) {
-		if (studyCollection) {
-			const card = studyCollection.flashcards.find((c) => c.id === cardId);
-			if (card) {
-				card.flipped = event.detail.flipped;
-				studyCollection.flashcards = [...studyCollection.flashcards];
-			}
+		} catch (err) {
+			toast.error('Error updating difficulty status.');
+			console.error('Error in handleToggleDifficult:', err);
+			// Revert optimistic update on network error
+			currentFlashcards.update((cards) => {
+				const cardIdx = cards.findIndex((c) => c.id === $currentCard!.id);
+				if (cardIdx !== -1) {
+					cards[cardIdx] = { ...cards[cardIdx], isDifficult: originalIsDifficult };
+				}
+				return cards;
+			});
 		}
 	}
 
-	onMount(() => {
-		fetchCollections();
-	});
+	function handleStudyAgainFullReset() {
+		const id = $activeCollection?.id;
+		if (!id) return;
+
+		restartSessionForCurrentCollection(id);
+		showModal = false;
+	}
+
+	function handleReviewOnlyFailed() {
+		showOnlyFailed.set(true);
+		isFilteredViewActive.set(true);
+		showModal = false;
+		// ❗️ No tocar sessionCompleted aquí
+	}
+
+	function handleFreeMode() {
+		showAllCards();
+		showModal = false;
+		// ❗️ No tocar sessionCompleted aquí
+	}
+
+	$: allBadgesUnlocked = $sessionCompleted && $correctAnswers > 0 && $incorrectAnswers === 0;
 </script>
 
 <svelte:head>
@@ -181,6 +424,28 @@
 </svelte:head>
 
 <div class="container mx-auto max-w-3xl p-4 md:p-6">
+	<Modal
+		bind:isOpen={showModal}
+		title="Session Summary"
+		message={`Collection: ${$activeCollection?.name || 'N/A'}\nTotal Cards: ${$totalFlashcards}\nCorrect: ${$correctAnswers}\nIncorrect: ${$incorrectAnswers}\nFinal Score: ${$currentScore}`}
+		confirmText={$correctAnswers > 0 && $incorrectAnswers === 0
+			? 'Repasar sin nuevos logros'
+			: 'Study Again (Same Collection)'}
+		disableConfirm={false}
+		cancelText="Close"
+		reviewText="Review"
+		on:confirm={handleStudyAgainFullReset}
+		on:review={handleReviewOnlyFailed}
+		on:cancel={handleFreeMode}
+	>
+		{#if allBadgesUnlocked}
+			<p class="mt-4 rounded-md bg-green-100 p-2 text-sm text-green-700">
+				🏆 Has completado esta colección perfectamente y ya obtuviste todos los logros disponibles.
+				¡Bien hecho!
+			</p>
+		{/if}
+	</Modal>
+
 	<h1 class="mb-6 text-2xl font-bold text-gray-800 md:text-3xl">Study Mode</h1>
 
 	{#if errorMessage}
@@ -206,7 +471,7 @@
 			<select
 				id="collectionSelect"
 				bind:value={selectedCollectionId}
-				on:change={loadFlashcardsForStudy}
+				on:change={handleLoadCollectionForStudy}
 				class="block w-full appearance-none rounded-md border border-gray-300 p-3 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
 			>
 				<option value={undefined} disabled>-- Select Collection --</option>
@@ -219,26 +484,111 @@
 
 	{#if isLoadingFlashcards}
 		<p class="text-gray-500">Loading flashcards...</p>
-	{:else if selectedCollectionId && studyCollection && studyCollection.flashcards.length > 0}
-		{@const currentFlashcard = studyCollection.flashcards[currentCardIndex]}
+	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
 		<div class="study-area rounded-lg bg-white p-6 shadow-xl md:p-8">
-			<p class="mb-4 text-sm text-gray-600">
-				Card {currentCardIndex + 1} of {studyCollection.flashcards.length}
-				{#if studyCollection.name}in "{studyCollection.name}"{/if}
-			</p>
+			<SessionStats />
+			{#if allBadgesUnlocked}
+				<p class="mt-4 rounded-md bg-green-100 p-2 text-sm text-green-700">
+					🏆 Has completado esta colección perfectamente y ya obtuviste todos los logros
+					disponibles. ¡Bien hecho!
+				</p>
+			{/if}
+			<div class="mb-4 flex items-center justify-between pt-4">
+				<p class="text-sm text-gray-600">
+					Card {$currentIndex + 1} of {$totalFlashcards}
+					{#if $activeCollection.name}in "{$activeCollection.name}"{/if}
+					{#if $isUnansweredOnly}
+						(Unanswered Only)
+					{:else if $isFilteredViewActive}
+						(Failed Only)
+					{/if}
+				</p>
+				<div class="flex space-x-2">
+					<button
+						on:click={handleShuffle}
+						class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 focus:outline-none"
+					>
+						Shuffle
+					</button>
 
-			{#if currentFlashcard}
-				<div class="card-wrapper mx-auto" style="max-width: 500px; min-height: 300px;">
+					{#if $isFilteredViewActive}
+						<button
+							on:click={handleShowAllCards}
+							class="rounded-md border border-blue-300 bg-blue-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-600 focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:outline-none"
+						>
+							Show All Cards
+						</button>
+					{:else}
+						<button
+							on:click={handleFilterFailedCards}
+							disabled={!$currentFlashcards.some((card) => card.failedInSession)}
+							class="rounded-md border border-orange-300 bg-orange-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-600 focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							Study Failed Only
+						</button>
+						<button
+							on:click={handleFilterUnansweredCards}
+							class="rounded-md border border-purple-300 bg-purple-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-600 focus:ring-2 focus:ring-purple-400 focus:ring-offset-1 focus:outline-none"
+						>
+							Unanswered Only
+						</button>
+					{/if}
+				</div>
+			</div>
+
+			<div class="mb-4 h-2.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
+				<div
+					class="h-2.5 rounded-full bg-blue-600 transition-all duration-300 ease-out"
+					style="width: {$progressPercentage}%"
+				></div>
+			</div>
+
+			{#if $currentCard}
+				<div
+					class="card-wrapper mx-auto flex flex-grow items-center justify-center transition-all duration-300 ease-in-out"
+					class:border-green-500={answerFeedback === 'correct'}
+					class:border-red-500={answerFeedback === 'incorrect'}
+					class:shadow-green-xl={answerFeedback === 'correct'}
+					class:shadow-red-xl={answerFeedback === 'incorrect'}
+					class:border-4={answerFeedback !== null}
+					style="max-width: 500px; min-height: 260px;"
+				>
 					<Card
-						front={currentFlashcard.question}
-						back={currentFlashcard.answer}
-						imageUrl={currentFlashcard.imageUrl}
-						flipped={currentFlashcard.flipped || false}
-						on:toggle={(e) => handleCardToggle(e, currentFlashcard.id)}
+						front={$currentCard.question}
+						back={$currentCard.answer}
+						imageUrl={$currentCard.imageUrl}
+						pronunciation={$currentCard.pronunciation}
+						example={$currentCard.example}
+						flipped={$currentCard.flipped || false}
+						on:toggle={(e) => flipCard($currentCard!.id, e.detail.flipped)}
 					/>
 				</div>
-				<div class="mt-3 text-center text-xs text-gray-500">
-					Viewed: {currentFlashcard.timesViewed}, Correct: {currentFlashcard.timesCorrect}
+				<div class="flex items-center justify-center text-xs text-gray-500">
+					<p class="mr-4">
+						Viewed: {$currentCard.timesViewed}, Correct: {$currentCard.timesCorrect}
+					</p>
+					<button
+						on:click={handleToggleDifficult}
+						title={$currentCard.isDifficult ? 'Mark as not difficult' : 'Mark as difficult'}
+						class:text-yellow-500={$currentCard.isDifficult}
+						class:hover:text-yellow-600={$currentCard.isDifficult}
+						class:text-gray-400={!$currentCard.isDifficult}
+						class:hover:text-gray-600={!$currentCard.isDifficult}
+						class="rounded-full p-1 transition-colors"
+					>
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							viewBox="0 0 24 24"
+							fill="currentColor"
+							class="h-5 w-5"
+						>
+							<path
+								fill-rule="evenodd"
+								d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.006z"
+								clip-rule="evenodd"
+							/>
+						</svg>
+					</button>
 				</div>
 			{:else}
 				<p class="py-10 text-center text-red-500">
@@ -246,38 +596,51 @@
 				</p>
 			{/if}
 
+			<div class="my-4 text-center">
+				<p class="mb-1 text-xl font-bold text-indigo-600">Score: {$currentScore}</p>
+				<p class="text-md">{$correctAnswers} Correct, {$incorrectAnswers} Incorrect</p>
+			</div>
+
 			<div
-				class="mt-8 flex flex-col items-center justify-between space-y-3 sm:flex-row sm:space-x-3 sm:space-y-0"
+				class="mt-8 flex flex-col items-center justify-between space-y-3 sm:flex-row sm:space-y-0 sm:space-x-3"
 			>
 				<button
-					on:click={() => navigateCard(-1)}
-					class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:w-auto"
+					on:click={() => handleNavigate('prev')}
+					disabled={$totalFlashcards <= 1}
+					class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
 				>
 					Previous
 				</button>
 				<div class="flex space-x-3">
 					<button
-						on:click={() => updateCorrectIncorrectAPI(false)}
-						class="rounded-md bg-red-500 px-4 py-3 text-sm text-white transition-colors hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2"
+						on:click={() => handleMarkAnswer(false)}
+						disabled={!$currentCard ||
+							$currentCard.flipped ||
+							($currentCard.answeredInSession && !$currentCard.failedInSession)}
+						class="rounded-md bg-red-500 px-4 py-3 text-sm text-white transition-colors hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Incorrect
 					</button>
 					<button
-						on:click={() => updateCorrectIncorrectAPI(true)}
-						class="rounded-md bg-green-500 px-4 py-3 text-sm text-white transition-colors hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2"
+						on:click={() => handleMarkAnswer(true)}
+						disabled={!$currentCard ||
+							$currentCard.flipped ||
+							($currentCard.answeredInSession && !$currentCard.failedInSession)}
+						class="rounded-md bg-green-500 px-4 py-3 text-sm text-white transition-colors hover:bg-green-600 focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Correct
 					</button>
 				</div>
 				<button
-					on:click={() => navigateCard(1)}
-					class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 sm:w-auto"
+					on:click={() => handleNavigate('next')}
+					disabled={$totalFlashcards <= 1}
+					class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
 				>
 					Next
 				</button>
 			</div>
 		</div>
-	{:else if selectedCollectionId && !isLoadingFlashcards && (!studyCollection || studyCollection.flashcards.length === 0)}
+	{:else if selectedCollectionId && !isLoadingFlashcards && $totalFlashcards === 0}
 		<p class="rounded-md border border-yellow-300 bg-yellow-50 p-4 text-gray-600">
 			This collection is empty or no flashcards were loaded.
 			<a href="/admin/new?collectionId={selectedCollectionId}" class="text-blue-500 hover:underline"
@@ -286,7 +649,7 @@
 		</p>
 	{/if}
 
-	<div class="mt-8 text-center">
+	<div class="mt-2 text-center">
 		<a href="/" class="text-indigo-600 transition-colors hover:text-indigo-800 hover:underline"
 			>Back to Collections List</a
 		>
