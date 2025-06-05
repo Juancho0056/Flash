@@ -1,8 +1,10 @@
+import { studyStats } from '$lib/stores/studyStats';
 import { writable, derived, get } from 'svelte/store'; // Added get here explicitly
 import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
 import { awardBadge, BadgeId } from '$lib/services/badgeService';
 import { loadStudyProgress, saveStudyProgress, clearStudyProgress, type StudyProgress } from '$lib/services/progressService';
 import { updateLastStudiedTimestamp } from '$lib/services/collectionMetaService';
+import { saveSessionToHistory } from '$lib/services/studyHistoryService';
 
 export interface FlashcardStudy extends PrismaFlashcard {
   flipped?: boolean;
@@ -44,7 +46,7 @@ export const isFilteredViewActive = writable<boolean>(initialStudyState.isFilter
 export const isUnansweredOnly = writable<boolean>(initialStudyState.isUnansweredOnly);
 export const isReviewMode = writable<boolean>(initialStudyState.isReviewMode);
 export const masterSessionCards = writable<FlashcardStudy[]>([]);
-
+export const sessionStartTime = writable<number>(Date.now());
 // Constants
 const POINTS_PER_CORRECT_ANSWER = 10;
 const reviewModeStorageKey = 'reviewModeByCollection';
@@ -106,7 +108,12 @@ export function loadCollectionForStudy(collectionData: CollectionWithFlashcards 
     }));
 
     activeCollection.set(collectionData);
-    
+    console.log(`Loading collection for study: ${collectionData.name} (${collectionData.id})`);
+    console.log('Saved progress:', savedProgress);
+
+    // Si hay progreso guardado y no es repaso, restauramos el estado
+    // Si es repaso, usamos el estado guardado pero no lo modificamos
+    // Si no hay progreso guardado, iniciamos una nueva sesión
     if (!review && savedProgress && !savedProgress.sessionCompleted) {
       currentIndex.set(savedProgress.currentIndex);
       correctAnswers.set(savedProgress.correctAnswers);
@@ -145,7 +152,7 @@ export function loadCollectionForStudy(collectionData: CollectionWithFlashcards 
         sessionCompleted.set(savedProgress?.sessionCompleted ?? false);
       }
     }
-
+    sessionStartTime.set(Date.now());
     currentFlashcards.set(initialFlashcards);
     masterSessionCards.set(initialFlashcards);
     timerActive.set(true);
@@ -175,7 +182,7 @@ export function markAnswer(isCorrect: boolean) {
 	// ✅ Protección inmediata
 	if (!current || get(sessionCompleted) || current.answeredInSession) return;
 
-
+	// 🟦 Actualizar currentFlashcards
 	currentFlashcards.update(cards => {
 		const idx = get(currentIndex);
 		const card = cards[idx];
@@ -185,11 +192,12 @@ export function markAnswer(isCorrect: boolean) {
 		updated[idx] = {
 			...card,
 			answeredInSession: true,
-			failedInSession: !isCorrect
+			failedInSession: isCorrect ? false : true
 		};
 		return updated;
 	});
 
+	// 🟦 Actualizar masterSessionCards
 	masterSessionCards.update(cards => {
 		const idx = cards.findIndex(c => c.id === current.id);
 		if (idx === -1 || cards[idx].answeredInSession) return cards;
@@ -198,24 +206,40 @@ export function markAnswer(isCorrect: boolean) {
 		updated[idx] = {
 			...cards[idx],
 			answeredInSession: true,
-			failedInSession: !isCorrect
+			failedInSession: isCorrect ? false : true
 		};
 		return updated;
 	});
 
-	// Estadísticas
+	// 📊 Actualizar estadísticas visuales
+	studyStats.update(stats => {
+		stats.totalViewed++;
 		if (isCorrect) {
-			correctAnswers.update(n => n + 1);
-			currentScore.update(s => s + POINTS_PER_CORRECT_ANSWER);
-
-			if (get(correctAnswers) === 10) {
-				awardBadge(BadgeId.TEN_CORRECT_IN_SESSION);
+			stats.totalCorrect++;
+			stats.correctStreak++;
+			if (stats.correctStreak > stats.longestStreak) {
+				stats.longestStreak = stats.correctStreak;
 			}
 		} else {
-			incorrectAnswers.update(n => n + 1);
+			stats.totalIncorrect++;
+			stats.correctStreak = 0;
 		}
+		return stats;
+	});
 
-	// Final de sesión
+	// 🧠 Actualizar contadores numéricos
+	if (isCorrect) {
+		correctAnswers.update(n => n + 1);
+		currentScore.update(s => s + POINTS_PER_CORRECT_ANSWER);
+
+		if (get(correctAnswers) === 10) {
+			awardBadge(BadgeId.TEN_CORRECT_IN_SESSION);
+		}
+	} else {
+		incorrectAnswers.update(n => n + 1);
+	}
+
+	// ✅ Validar final de sesión
 	const allAnswered = get(currentFlashcards).every(fc => fc.answeredInSession);
 	if (get(currentFlashcards).length > 0 && allAnswered) {
 		sessionCompleted.set(true);
@@ -227,6 +251,23 @@ export function markAnswer(isCorrect: boolean) {
 			if (collection) {
 				saveReviewModeFor(collection.id, true);
 			}
+		}
+
+		// 🧾 Guardar historial
+		const collection = get(activeCollection);
+		if (collection) {
+			saveSessionToHistory({
+				collectionId: collection.id,
+				collectionName: collection.name,
+				timestamp: Date.now(),
+				totalCards: get(currentFlashcards).length,
+				correct: get(correctAnswers),
+				incorrect: get(incorrectAnswers),
+				score: get(currentScore),
+				streak: get(studyStats).correctStreak,
+				longestStreak: get(studyStats).longestStreak,
+				durationMs: Date.now() - get(sessionStartTime) // Define esto al iniciar la sesión
+			});
 		}
 	}
 }
@@ -356,35 +397,36 @@ export function resetStudyState() {
 // Removed explicit get function as it's now imported from 'svelte/store'
 
 export function saveProgressForCurrentCollection(): void {
-  const collection = get(activeCollection);
-  if (!collection) return; // No active collection, nothing to save
+	const collection = get(activeCollection);
+	if (!collection) return;
 
-  const flashcardsToSaveState = get(currentFlashcards).map(fc => ({
-    id: fc.id,
-    failedInSession: fc.failedInSession || false,
-    answeredInSession: fc.answeredInSession || false, // ✅ NUEVO
-    // other per-card state if needed in future
-  }));
+	const flashcardsToSaveState = get(currentFlashcards).map(fc => ({
+		id: fc.id,
+		failedInSession: fc.failedInSession || false,
+		answeredInSession: fc.answeredInSession || false
+	}));
 
-  const currentTimestamp = Date.now(); // Define currentTimestamp here
+	const currentTimestamp = Date.now();
 
-  const progressToSave: StudyProgress = {
-    collectionId: collection.id,
-    currentIndex: get(currentIndex),
-    correctAnswers: get(correctAnswers),
-    incorrectAnswers: get(incorrectAnswers),
-    currentScore: get(currentScore),
-    sessionCompleted: get(sessionCompleted),
-    flashcardsState: flashcardsToSaveState,
-    lastSavedTimestamp: currentTimestamp,
-    lastReviewedIndex: get(currentIndex), // Assuming lastReviewedIndex is the same as currentIndex
-    lastReviewedTimestamp: currentTimestamp // Use currentTimestamp for lastReviewedTimestamp
-  };
-  saveStudyProgress(progressToSave); // From progressService
+	const progressToSave: StudyProgress = {
+		collectionId: collection.id,
+		currentIndex: get(currentIndex),
+		correctAnswers: get(correctAnswers),
+		incorrectAnswers: get(incorrectAnswers),
+		currentScore: get(currentScore),
+		sessionCompleted: get(sessionCompleted),
+		flashcardsState: flashcardsToSaveState,
+		lastSavedTimestamp: currentTimestamp,
+		lastReviewedIndex: get(currentIndex),
+		lastReviewedTimestamp: currentTimestamp,
 
-  // Also update the separate lastStudiedTimestamp for easier access by other parts of the app
-  updateLastStudiedTimestamp(collection.id, currentTimestamp); // From collectionMetaService
-  // console.log(`Overall lastStudiedTimestamp updated for ${collection.id}`);
+		// 🟢 Campos faltantes:
+		sessionStartTime: get(sessionStartTime),
+		studyStats: get(studyStats)
+	};
+
+	saveStudyProgress(progressToSave);
+	updateLastStudiedTimestamp(collection.id, currentTimestamp);
 }
 export function incrementTimesViewedForCurrentCard() {
   const index = get(currentIndex);

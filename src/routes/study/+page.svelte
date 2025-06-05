@@ -33,15 +33,16 @@
 		incrementTimesViewedForCurrentCard,
 		filterUnansweredCards,
 		setUnansweredOnlyView,
-		isReviewMode 
+		isReviewMode
 	} from '$lib/stores/studyStore';
 	import type { CollectionWithFlashcards, FlashcardStudy } from '$lib/stores/studyStore';
 	import Modal from '$lib/components/Modal.svelte'; // Import Modal
 	import { toast } from '$lib/toastStore'; // Import toast
 	import { awardBadge, BadgeId } from '$lib/services/badgeService';
-	import { studyStats } from '$lib/stores/studyStats';
 
-
+	$: allCorrectAndAnswered =
+		$sessionCompleted &&
+		$currentFlashcards.every((card) => card.answeredInSession && !card.failedInSession);
 	let collections: Collection[] = []; // For selection dropdown
 	let selectedCollectionId: string | undefined = undefined;
 	let errorMessage: string | null = null;
@@ -52,11 +53,8 @@
 	$: if ($currentCard) {
 		incrementTimesViewedForCurrentCard();
 	}
-	$: allBadgesUnlocked =
-		$sessionCompleted && $correctAnswers > 0 && $incorrectAnswers === 0;
+	$: allBadgesUnlocked = $sessionCompleted && $correctAnswers > 0 && $incorrectAnswers === 0;
 
-
-	
 	async function handleFilterUnansweredCards() {
 		filterUnansweredCards();
 		setUnansweredOnlyView(true); // Set the view to unanswered only
@@ -134,8 +132,8 @@
 
 			if (response.ok) {
 				const updated = await response.json();
-				currentFlashcards.update(cards => {
-					const idx = cards.findIndex(c => c.id === flashcardId);
+				currentFlashcards.update((cards) => {
+					const idx = cards.findIndex((c) => c.id === flashcardId);
 					if (idx !== -1) {
 						cards[idx] = { ...cards[idx], ...updated };
 					}
@@ -147,52 +145,52 @@
 		}
 	}
 
+	async function handleMarkAnswer(isCorrect: boolean) {
+		if (!$currentCard || $currentCard.flipped || $currentCard.answeredInSession) return;
 
-async function handleMarkAnswer(isCorrect: boolean) {
-	if (!$currentCard || $currentCard.flipped || $currentCard.answeredInSession) return;
-
-	// feedback visual
-	if (feedbackTimeout) {
-		clearTimeout(feedbackTimeout);
-		feedbackTimeout = null;
-	}
-	answerFeedback = isCorrect ? 'correct' : 'incorrect';
-
-	// 👉 usar función del store
-	markAnswer(isCorrect);
-
-	// API update de estadísticas
-	if (!get(isReviewMode)) {
-		const cardToUpdate = { ...$currentCard };
-		const newTimesCorrect = cardToUpdate.timesCorrect + (isCorrect ? 1 : 0);
-		try {
-			await fetch(`/api/flashcards/${cardToUpdate.id}`, {
-				method: 'PUT',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ timesCorrect: newTimesCorrect })
-			});
-		} catch (err) {
-			console.warn('Error updating stats via API:', err);
+		// feedback visual
+		if (feedbackTimeout) {
+			clearTimeout(feedbackTimeout);
+			feedbackTimeout = null;
 		}
-	}
+		answerFeedback = isCorrect ? 'correct' : 'incorrect';
 
-	// fin de sesión si todas respondidas
-	const allAnswered = get(currentFlashcards).every(fc => fc.answeredInSession);
-	const allCorrect = get(currentFlashcards).every(fc => fc.answeredInSession && !fc.failedInSession);
+		// 👉 usar función del store
+		markAnswer(isCorrect);
 
-	if (allAnswered) {
-		sessionCompleted.set(true);
-		if (allCorrect) {
-			awardBadge(BadgeId.COLLECTION_MASTERED);
+		// API update de estadísticas
+		if (!get(isReviewMode)) {
+			const cardToUpdate = { ...$currentCard };
+			const newTimesCorrect = cardToUpdate.timesCorrect + (isCorrect ? 1 : 0);
+			try {
+				await fetch(`/api/flashcards/${cardToUpdate.id}`, {
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ timesCorrect: newTimesCorrect })
+				});
+			} catch (err) {
+				console.warn('Error updating stats via API:', err);
+			}
 		}
+
+		// fin de sesión si todas respondidas
+		const allAnswered = get(currentFlashcards).every((fc) => fc.answeredInSession);
+		const allCorrect = get(currentFlashcards).every(
+			(fc) => fc.answeredInSession && !fc.failedInSession
+		);
+
+		if (allAnswered) {
+			sessionCompleted.set(true);
+			if (allCorrect) {
+				awardBadge(BadgeId.COLLECTION_MASTERED);
+			}
+		}
+
+		feedbackTimeout = window.setTimeout(() => {
+			answerFeedback = null;
+			feedbackTimeout = null;
+		}, 750);
 	}
-
-	feedbackTimeout = window.setTimeout(() => {
-		answerFeedback = null;
-		feedbackTimeout = null;
-	}, 750);
-}
-
 
 	async function handleNavigate(direction: 'next' | 'prev') {
 		if (direction === 'next') {
@@ -217,13 +215,13 @@ async function handleMarkAnswer(isCorrect: boolean) {
 		}
 	}
 
-
 	async function handleShowAllCards() {
 		showAllCards(); // This action will change currentFlashcards and currentIndex
 		setUnansweredOnlyView(false);
 	}
 
-	onMount(async () => { // Make onMount async to await fetchCollections
+	onMount(async () => {
+		// Make onMount async to await fetchCollections
 		await fetchCollections(); // Wait for collections to be available for the dropdown
 
 		// Read collectionId from URL after component mounts and page store is accessible
@@ -232,10 +230,11 @@ async function handleMarkAnswer(isCorrect: boolean) {
 
 		if (urlCollectionId) {
 			// Check if this collection ID exists in the fetched collections
-			const collectionExists = collections.some(c => c.id === urlCollectionId);
+			const collectionExists = collections.some((c) => c.id === urlCollectionId);
 			if (collectionExists) {
 				if (urlCollectionId !== selectedCollectionId) {
 					selectedCollectionId = urlCollectionId; // This will also update the select dropdown's display
+					console.log(`Loading collection for study: ${urlCollectionId}`);
 					await handleLoadCollectionForStudy(); // Load the collection
 				}
 			} else {
@@ -255,12 +254,11 @@ async function handleMarkAnswer(isCorrect: boolean) {
 	});
 
 	async function handleStudyAgain() {
-		
 		const allAnswered = $correctAnswers + $incorrectAnswers === $totalFlashcards;
 		const allCorrect = $correctAnswers === $totalFlashcards;
-			console.log('handleStudyAgain called');
-			console.log('allAnswered:', allAnswered);
-			console.log('allCorrect:', allCorrect);
+		console.log('handleStudyAgain called');
+		console.log('allAnswered:', allAnswered);
+		console.log('allCorrect:', allCorrect);
 
 		isReviewMode.set(allAnswered && allCorrect);
 
@@ -271,10 +269,10 @@ async function handleMarkAnswer(isCorrect: boolean) {
 		} else if ($activeCollection && selectedCollectionId && isReviewMode) {
 			// Fallback or error if no active collection to study again
 			sessionCompleted.set(false); // Close modal
-		}else {
+		} else {
 			// If no collection is selected, reset the study state
 			//resetStudyState();
-			errorMessage = "No collection selected. Please choose a collection to study.";
+			errorMessage = 'No collection selected. Please choose a collection to study.';
 		}
 		// loadCollectionForStudy (called by handleLoadCollectionForStudy) resets sessionCompleted in the store
 	}
@@ -294,14 +292,14 @@ async function handleMarkAnswer(isCorrect: boolean) {
 		const newIsDifficult = !originalIsDifficult;
 
 		// 1. Optimistic UI update
-		currentFlashcards.update(cards => {
-			const cardIdx = cards.findIndex(c => c.id === $currentCard!.id);
+		currentFlashcards.update((cards) => {
+			const cardIdx = cards.findIndex((c) => c.id === $currentCard!.id);
 			if (cardIdx !== -1) {
 				cards[cardIdx] = { ...cards[cardIdx], isDifficult: newIsDifficult };
 			}
 			return cards;
 		});
-	
+
 		// 2. API call to persist
 		try {
 			const response = await fetch(`/api/flashcards/${$currentCard.id}`, {
@@ -313,8 +311,8 @@ async function handleMarkAnswer(isCorrect: boolean) {
 			if (response.ok) {
 				const updatedCardFromServer: PrismaFlashcard = await response.json();
 				// Confirm with server's response (especially if other fields could change)
-				currentFlashcards.update(cards => {
-					const cardIdx = cards.findIndex(c => c.id === $currentCard!.id);
+				currentFlashcards.update((cards) => {
+					const cardIdx = cards.findIndex((c) => c.id === $currentCard!.id);
 					if (cardIdx !== -1) {
 						cards[cardIdx] = { ...cards[cardIdx], ...updatedCardFromServer };
 					}
@@ -324,8 +322,8 @@ async function handleMarkAnswer(isCorrect: boolean) {
 			} else {
 				// API call failed, revert optimistic update
 				toast.error('Failed to update difficulty status.');
-				currentFlashcards.update(cards => {
-					const cardIdx = cards.findIndex(c => c.id === $currentCard!.id);
+				currentFlashcards.update((cards) => {
+					const cardIdx = cards.findIndex((c) => c.id === $currentCard!.id);
 					if (cardIdx !== -1) {
 						cards[cardIdx] = { ...cards[cardIdx], isDifficult: originalIsDifficult };
 					}
@@ -336,8 +334,8 @@ async function handleMarkAnswer(isCorrect: boolean) {
 			toast.error('Error updating difficulty status.');
 			console.error('Error in handleToggleDifficult:', err);
 			// Revert optimistic update on network error
-			currentFlashcards.update(cards => {
-				const cardIdx = cards.findIndex(c => c.id === $currentCard!.id);
+			currentFlashcards.update((cards) => {
+				const cardIdx = cards.findIndex((c) => c.id === $currentCard!.id);
 				if (cardIdx !== -1) {
 					cards[cardIdx] = { ...cards[cardIdx], isDifficult: originalIsDifficult };
 				}
@@ -356,15 +354,18 @@ async function handleMarkAnswer(isCorrect: boolean) {
 		bind:isOpen={$sessionCompleted}
 		title="Session Summary"
 		message={`Collection: ${$activeCollection?.name || 'N/A'}\nTotal Cards: ${$totalFlashcards}\nCorrect: ${$correctAnswers}\nIncorrect: ${$incorrectAnswers}\nFinal Score: ${$currentScore}`}
-		confirmText={$correctAnswers > 0 && $incorrectAnswers === 0 ? 'Repasar sin nuevos logros' : 'Study Again (Same Collection)'}
+		confirmText={$correctAnswers > 0 && $incorrectAnswers === 0
+			? 'Repasar sin nuevos logros'
+			: 'Study Again (Same Collection)'}
 		disableConfirm={false}
 		cancelText="Close / Pick New"
 		on:confirm={handleStudyAgain}
 		on:cancel={handleCloseSummary}
 	>
 		{#if allBadgesUnlocked}
-			<p class="mt-4 text-sm text-green-700 bg-green-100 rounded-md p-2">
-				🏆 Has completado esta colección perfectamente y ya obtuviste todos los logros disponibles. ¡Bien hecho!
+			<p class="mt-4 rounded-md bg-green-100 p-2 text-sm text-green-700">
+				🏆 Has completado esta colección perfectamente y ya obtuviste todos los logros disponibles.
+				¡Bien hecho!
 			</p>
 		{/if}
 	</Modal>
@@ -410,7 +411,13 @@ async function handleMarkAnswer(isCorrect: boolean) {
 	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
 		<div class="study-area rounded-lg bg-white p-6 shadow-xl md:p-8">
 			<SessionStats />
-			<div class="pt-4 mb-4 flex items-center justify-between">
+			{#if allCorrectAndAnswered}
+				<p class="mt-4 rounded-md bg-green-100 p-2 text-sm text-green-700">
+					🏆 Has completado esta colección perfectamente y ya obtuviste todos los logros
+					disponibles. ¡Bien hecho!
+				</p>
+			{/if}
+			<div class="mb-4 flex items-center justify-between pt-4">
 				<p class="text-sm text-gray-600">
 					Card {$currentIndex + 1} of {$totalFlashcards}
 					{#if $activeCollection.name}in "{$activeCollection.name}"{/if}
@@ -419,21 +426,19 @@ async function handleMarkAnswer(isCorrect: boolean) {
 					{:else if $isFilteredViewActive}
 						(Failed Only)
 					{/if}
-					
-					
 				</p>
 				<div class="flex space-x-2">
 					<button
 						on:click={handleShuffle}
-						class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
+						class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 focus:outline-none"
 					>
 						Shuffle
 					</button>
-					
+
 					{#if $isFilteredViewActive}
 						<button
 							on:click={handleShowAllCards}
-							class="rounded-md border border-blue-300 bg-blue-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+							class="rounded-md border border-blue-300 bg-blue-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-600 focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:outline-none"
 						>
 							Show All Cards
 						</button>
@@ -441,13 +446,13 @@ async function handleMarkAnswer(isCorrect: boolean) {
 						<button
 							on:click={handleFilterFailedCards}
 							disabled={!$currentFlashcards.some((card) => card.failedInSession)}
-							class="rounded-md border border-orange-300 bg-orange-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
+							class="rounded-md border border-orange-300 bg-orange-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-600 focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 						>
 							Study Failed Only
 						</button>
 						<button
 							on:click={handleFilterUnansweredCards}
-							class="rounded-md border border-purple-300 bg-purple-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-1"
+							class="rounded-md border border-purple-300 bg-purple-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-600 focus:ring-2 focus:ring-purple-400 focus:ring-offset-1 focus:outline-none"
 						>
 							Unanswered Only
 						</button>
@@ -455,17 +460,16 @@ async function handleMarkAnswer(isCorrect: boolean) {
 				</div>
 			</div>
 
-			<div class="mb-4 w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+			<div class="mb-4 h-2.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
 				<div
-					class="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+					class="h-2.5 rounded-full bg-blue-600 transition-all duration-300 ease-out"
 					style="width: {$progressPercentage}%"
 				></div>
 			</div>
 
-
 			{#if $currentCard}
 				<div
-					class="card-wrapper mx-auto transition-all duration-300 ease-in-out flex-grow flex items-center justify-center"
+					class="card-wrapper mx-auto flex flex-grow items-center justify-center transition-all duration-300 ease-in-out"
 					class:border-green-500={answerFeedback === 'correct'}
 					class:border-red-500={answerFeedback === 'incorrect'}
 					class:shadow-green-xl={answerFeedback === 'correct'}
@@ -473,7 +477,6 @@ async function handleMarkAnswer(isCorrect: boolean) {
 					class:border-4={answerFeedback !== null}
 					style="max-width: 500px; min-height: 260px;"
 				>
-					
 					<Card
 						front={$currentCard.question}
 						back={$currentCard.answer}
@@ -482,10 +485,12 @@ async function handleMarkAnswer(isCorrect: boolean) {
 						example={$currentCard.example}
 						flipped={$currentCard.flipped || false}
 						on:toggle={(e) => flipCard($currentCard!.id, e.detail.flipped)}
-						/>
+					/>
 				</div>
 				<div class="flex items-center justify-center text-xs text-gray-500">
-					<p class="mr-4">Viewed: {$currentCard.timesViewed}, Correct: {$currentCard.timesCorrect}</p>
+					<p class="mr-4">
+						Viewed: {$currentCard.timesViewed}, Correct: {$currentCard.timesCorrect}
+					</p>
 					<button
 						on:click={handleToggleDifficult}
 						title={$currentCard.isDifficult ? 'Mark as not difficult' : 'Mark as difficult'}
@@ -493,10 +498,19 @@ async function handleMarkAnswer(isCorrect: boolean) {
 						class:hover:text-yellow-600={$currentCard.isDifficult}
 						class:text-gray-400={!$currentCard.isDifficult}
 						class:hover:text-gray-600={!$currentCard.isDifficult}
-						class="p-1 rounded-full transition-colors"
+						class="rounded-full p-1 transition-colors"
 					>
-						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
-							<path fill-rule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.006z" clip-rule="evenodd" />
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							viewBox="0 0 24 24"
+							fill="currentColor"
+							class="h-5 w-5"
+						>
+							<path
+								fill-rule="evenodd"
+								d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.006z"
+								clip-rule="evenodd"
+							/>
 						</svg>
 					</button>
 				</div>
@@ -507,17 +521,17 @@ async function handleMarkAnswer(isCorrect: boolean) {
 			{/if}
 
 			<div class="my-4 text-center">
-				<p class="text-xl font-bold text-indigo-600 mb-1">Score: {$currentScore}</p>
+				<p class="mb-1 text-xl font-bold text-indigo-600">Score: {$currentScore}</p>
 				<p class="text-md">{$correctAnswers} Correct, {$incorrectAnswers} Incorrect</p>
 			</div>
 
 			<div
-				class="mt-8 flex flex-col items-center justify-between space-y-3 sm:flex-row sm:space-x-3 sm:space-y-0"
+				class="mt-8 flex flex-col items-center justify-between space-y-3 sm:flex-row sm:space-y-0 sm:space-x-3"
 			>
 				<button
 					on:click={() => handleNavigate('prev')}
 					disabled={$totalFlashcards <= 1}
-					class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+					class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
 				>
 					Previous
 				</button>
@@ -525,14 +539,14 @@ async function handleMarkAnswer(isCorrect: boolean) {
 					<button
 						on:click={() => handleMarkAnswer(false)}
 						disabled={!$currentCard || $currentCard.flipped || $currentCard.answeredInSession}
-						class="rounded-md bg-red-500 px-4 py-3 text-sm text-white transition-colors hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+						class="rounded-md bg-red-500 px-4 py-3 text-sm text-white transition-colors hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Incorrect
 					</button>
 					<button
 						on:click={() => handleMarkAnswer(true)}
 						disabled={!$currentCard || $currentCard.flipped || $currentCard.answeredInSession}
-						class="rounded-md bg-green-500 px-4 py-3 text-sm text-white transition-colors hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+						class="rounded-md bg-green-500 px-4 py-3 text-sm text-white transition-colors hover:bg-green-600 focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Correct
 					</button>
@@ -540,7 +554,7 @@ async function handleMarkAnswer(isCorrect: boolean) {
 				<button
 					on:click={() => handleNavigate('next')}
 					disabled={$totalFlashcards <= 1}
-					class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+					class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
 				>
 					Next
 				</button>

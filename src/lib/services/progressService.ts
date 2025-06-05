@@ -1,5 +1,7 @@
 // src/lib/services/progressService.ts
 
+import type { StudyStats } from "$lib/stores/studyStats";
+
 export interface StudyProgress {
   collectionId: string;
   currentIndex: number;
@@ -11,6 +13,8 @@ export interface StudyProgress {
   lastReviewedIndex: number;
   lastReviewedTimestamp: number;
   lastSavedTimestamp: number;
+  sessionStartTime: number;
+  studyStats: StudyStats;
 }
 
 function getStorageKey(collectionId: string): string {
