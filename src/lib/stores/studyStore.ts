@@ -56,6 +56,7 @@ export const isUnansweredOnly = writable<boolean>(initialStudyState.isUnanswered
 export const isReviewMode = writable<boolean>(initialStudyState.isReviewMode);
 export const masterSessionCards = writable<FlashcardStudy[]>([]);
 export const sessionStartTime = writable<number>(Date.now());
+const isProcessingAnswer = writable(false);
 // Constants
 const POINTS_PER_CORRECT_ANSWER = 10;
 const BASE_REVIEW_MODE_STORAGE_KEY = 'reviewModeByCollection';
@@ -232,10 +233,17 @@ export function flipCard(cardId: string, flippedState: boolean) {
 
 // Function to mark an answer
 export async function markAnswer(isCorrect: boolean) {
-	const current = get(currentCard);
+	if (get(isProcessingAnswer)) {
+		console.warn('markAnswer called while already processing. Skipping.');
+		return;
+	}
+	isProcessingAnswer.set(true);
 
-	// ✅ Protección inmediata
-	// If no current card, return.
+	try {
+		const current = get(currentCard);
+
+		// ✅ Protección inmediata
+		// If no current card, return.
 	// If the session (current view) is completed, AND we are not in a filtered view,
 	// AND the current card is NOT marked as failed (i.e., it's perfectly answered), THEN return.
 	// Otherwise (e.g., session completed, but current card IS failed), proceed.
@@ -434,6 +442,9 @@ export async function markAnswer(isCorrect: boolean) {
   if (!allAnswered) {
     await saveProgressForCurrentCollection();
   }
+	} finally {
+		isProcessingAnswer.set(false);
+	}
 }
 
 async function _persistDifficultStatus(cardId: string, makeDifficult: boolean): Promise<void> {
