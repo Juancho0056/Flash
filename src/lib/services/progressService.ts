@@ -1,5 +1,4 @@
 // src/lib/services/progressService.ts
-import type { FlashcardStudy } from '$lib/stores/studyStore'; // Assuming FlashcardStudy includes failedInSession
 
 export interface StudyProgress {
   collectionId: string;
@@ -8,7 +7,9 @@ export interface StudyProgress {
   incorrectAnswers: number;
   currentScore: number;
   sessionCompleted: boolean;
-  flashcardsState: Array<{ id: string; failedInSession?: boolean; /* Add other per-card states if needed */ }>;
+  flashcardsState: Array<{ id: string; failedInSession?: boolean; answeredInSession?: boolean }>;
+  lastReviewedIndex: number;
+  lastReviewedTimestamp: number;
   lastSavedTimestamp: number;
 }
 

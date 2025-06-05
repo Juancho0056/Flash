@@ -24,8 +24,10 @@ const initialStudyState = {
   timerActive: false, // Example, can be expanded for session timing
   showOnlyFailed: false, // Kept for potential direct use, though isFilteredViewActive is primary
   isFilteredViewActive: false,
+  isUnansweredOnly: false, // For filtering unanswered cards
   currentScore: 0,
   sessionCompleted: false, // New state
+  isReviewMode: false, // For review mode toggle
 };
 
 // Writable stores
@@ -39,10 +41,13 @@ export const sessionCompleted = writable<boolean>(initialStudyState.sessionCompl
 export const timerActive = writable<boolean>(initialStudyState.timerActive);
 export const showOnlyFailed = writable<boolean>(initialStudyState.showOnlyFailed); // Legacy or specific use
 export const isFilteredViewActive = writable<boolean>(initialStudyState.isFilteredViewActive);
+export const isUnansweredOnly = writable<boolean>(initialStudyState.isUnansweredOnly);
+export const isReviewMode = writable<boolean>(initialStudyState.isReviewMode);
+export const masterSessionCards = writable<FlashcardStudy[]>([]);
 
 // Constants
 const POINTS_PER_CORRECT_ANSWER = 10;
-
+const reviewModeStorageKey = 'reviewModeByCollection';
 // Derived store for current card based on currentIndex and flashcards
 export const currentCard = derived(
   [currentFlashcards, currentIndex],
@@ -71,61 +76,81 @@ export const totalFlashcards = derived(currentFlashcards, ($currentFlashcards) =
   return $currentFlashcards.length;
 });
 
+export function loadReviewModeFor(collectionId: string) {
+	const map = JSON.parse(sessionStorage.getItem(reviewModeStorageKey) || '{}');
+	const active = !!map[collectionId];
+	isReviewMode.set(active);
+}
 
+export function saveReviewModeFor(collectionId: string, value: boolean) {
+	const map = JSON.parse(sessionStorage.getItem(reviewModeStorageKey) || '{}');
+	map[collectionId] = value;
+	sessionStorage.setItem(reviewModeStorageKey, JSON.stringify(map));
+	isReviewMode.set(value);
+}
 // Function to load a new collection for study
 export function loadCollectionForStudy(collectionData: CollectionWithFlashcards | null) {
   if (collectionData && collectionData.flashcards) {
+    loadReviewModeFor(collectionData.id);
     const savedProgress = loadStudyProgress(collectionData.id);
+    const review = get(isReviewMode); // ⚠️ Verificamos si es modo repaso
 
     let initialFlashcards = collectionData.flashcards.map(fc => ({
-      ...fc, // fc from API should now include isDifficult due to prisma client update
+      ...fc,
       flipped: false,
       failedInSession: false,
-      isDifficult: fc.isDifficult || false, // Initialize isDifficult
+      isDifficult: fc.isDifficult || false,
       timesViewed: fc.timesViewed || 0,
       timesCorrect: fc.timesCorrect || 0,
+      answeredInSession: false // ✅ importante: limpiar solo si no es repaso
     }));
 
     activeCollection.set(collectionData);
-
-    // Check if progress should be loaded or if session should start fresh
-    if (savedProgress && !savedProgress.sessionCompleted) { // <<< MODIFIED CONDITION HERE
-      // Rehydrate from saved progress because it was not completed
+    
+    if (!review && savedProgress && !savedProgress.sessionCompleted) {
       currentIndex.set(savedProgress.currentIndex);
       correctAnswers.set(savedProgress.correctAnswers);
       incorrectAnswers.set(savedProgress.incorrectAnswers);
       currentScore.set(savedProgress.currentScore);
-      sessionCompleted.set(false); // Start un-completed, even if saved one was (should not happen with new condition)
+      sessionCompleted.set(false);
 
       const savedFlashcardsState = new Map(savedProgress.flashcardsState.map(fs => [fs.id, fs]));
       initialFlashcards = initialFlashcards.map(card => {
         const savedCardState = savedFlashcardsState.get(card.id);
         return {
-          ...card, // This includes isDifficult from the initial mapping
-          failedInSession: savedCardState?.failedInSession || card.failedInSession || false,
+          ...card,
+            failedInSession: savedCardState?.failedInSession || false,
+            answeredInSession: savedCardState?.answeredInSession || false,
         };
       });
-      // console.log('Resuming progress for collection:', collectionData.id);
     } else {
-      // No saved progress, or saved progress was for a completed session, so start fresh.
-      // If savedProgress existed but was completed, clear it now.
-      if (savedProgress && savedProgress.sessionCompleted) {
+      if (!review && savedProgress?.sessionCompleted) {
         clearStudyProgress(collectionData.id);
-        // console.log('Cleared completed session progress for:', collectionData.id);
       }
-      currentIndex.set(0);
-      correctAnswers.set(0);
-      incorrectAnswers.set(0);
-      currentScore.set(0);
-      sessionCompleted.set(false);
-      // `initialFlashcards` remains as freshly mapped with all `failedInSession: false`
-      // console.log('Starting fresh session for collection:', collectionData.id);
+
+      if (!review) {
+        currentIndex.set(0);
+        correctAnswers.set(0);
+        incorrectAnswers.set(0);
+        currentScore.set(0);
+        sessionCompleted.set(false);
+      }
+
+      if (review) {
+        // Conservamos las métricas anteriores para repaso si no hay nuevas tarjetas
+        currentIndex.set(savedProgress?.currentIndex ?? 0);
+        correctAnswers.set(savedProgress?.correctAnswers ?? 0);
+        incorrectAnswers.set(savedProgress?.incorrectAnswers ?? 0);
+        currentScore.set(savedProgress?.currentScore ?? 0);
+        sessionCompleted.set(savedProgress?.sessionCompleted ?? false);
+      }
     }
+
     currentFlashcards.set(initialFlashcards);
+    masterSessionCards.set(initialFlashcards);
     timerActive.set(true);
     showOnlyFailed.set(false);
     isFilteredViewActive.set(false);
-
   } else {
     resetStudyState();
   }
@@ -145,54 +170,67 @@ export function flipCard(cardId: string, flippedState: boolean) {
 
 // Function to mark an answer
 export function markAnswer(isCorrect: boolean) {
-  currentFlashcards.update(cards => {
-    const $currentIndexVal = get(currentIndex);
-    if (cards[$currentIndexVal]) {
-      if (isCorrect) {
-        // Optionally reset failedInSession if a card is later answered correctly
-        // For now, we keep it simple: once failed, it's marked for the session filter.
-        // cards[$currentIndexVal].failedInSession = false;
-      } else {
-        cards[$currentIndexVal].failedInSession = true;
-      }
-    }
-    return cards;
-  });
+	const current = get(currentCard);
 
-  // Removed prevCorrect and prevIncorrect as we'll use get() on updated values later.
+	// ✅ Protección inmediata
+	if (!current || get(sessionCompleted) || current.answeredInSession) return;
 
-  if (isCorrect) {
-    correctAnswers.update(n => n + 1);
-    currentScore.update(s => s + POINTS_PER_CORRECT_ANSWER);
 
-    // Check for TEN_CORRECT_IN_SESSION badge
-    if (get(correctAnswers) === 10) { // This uses the just-updated value
-      awardBadge(BadgeId.TEN_CORRECT_IN_SESSION);
-    }
-  } else {
-    incorrectAnswers.update(n => n + 1);
-    // No score change for incorrect, or could deduct points if desired
-  }
+	currentFlashcards.update(cards => {
+		const idx = get(currentIndex);
+		const card = cards[idx];
+		if (!card || card.answeredInSession) return cards;
 
-  // Check for session completion after answer counts are updated
-  const totalCardsInCurrentView = get(currentFlashcards).length;
-  const currentCorrectAnswers = get(correctAnswers);
-  const currentIncorrectAnswers = get(incorrectAnswers);
-  const totalAnswersGiven = currentCorrectAnswers + currentIncorrectAnswers;
+		const updated = [...cards];
+		updated[idx] = {
+			...card,
+			answeredInSession: true,
+			failedInSession: !isCorrect
+		};
+		return updated;
+	});
 
-  if (totalCardsInCurrentView > 0 && totalAnswersGiven >= totalCardsInCurrentView) {
-    // This logic assumes every card is answered once.
-    sessionCompleted.set(true);
+	masterSessionCards.update(cards => {
+		const idx = cards.findIndex(c => c.id === current.id);
+		if (idx === -1 || cards[idx].answeredInSession) return cards;
 
-    // Award session-dependent badges now that session is marked complete
-    awardBadge(BadgeId.FIRST_SESSION_COMPLETED); // AwardBadge handles if it's truly the first time
+		const updated = [...cards];
+		updated[idx] = {
+			...cards[idx],
+			answeredInSession: true,
+			failedInSession: !isCorrect
+		};
+		return updated;
+	});
 
-    // Check for COLLECTION_MASTERED badge
-    if (currentIncorrectAnswers === 0 && currentCorrectAnswers === totalCardsInCurrentView) {
-      awardBadge(BadgeId.COLLECTION_MASTERED);
-    }
-  }
+	// Estadísticas
+		if (isCorrect) {
+			correctAnswers.update(n => n + 1);
+			currentScore.update(s => s + POINTS_PER_CORRECT_ANSWER);
+
+			if (get(correctAnswers) === 10) {
+				awardBadge(BadgeId.TEN_CORRECT_IN_SESSION);
+			}
+		} else {
+			incorrectAnswers.update(n => n + 1);
+		}
+
+	// Final de sesión
+	const allAnswered = get(currentFlashcards).every(fc => fc.answeredInSession);
+	if (get(currentFlashcards).length > 0 && allAnswered) {
+		sessionCompleted.set(true);
+		awardBadge(BadgeId.FIRST_SESSION_COMPLETED);
+
+		if (get(incorrectAnswers) === 0 && get(correctAnswers) === get(currentFlashcards).length) {
+			awardBadge(BadgeId.COLLECTION_MASTERED);
+			const collection = get(activeCollection);
+			if (collection) {
+				saveReviewModeFor(collection.id, true);
+			}
+		}
+	}
 }
+
 
 // Navigation functions
 export function nextCard() {
@@ -283,50 +321,20 @@ export function filterFailedCards() {
 }
 
 export function showAllCards() {
-  const collection = get(activeCollection);
-  if (collection && collection.flashcards) {
-    // Similar to filterFailedCards, ensure we use the most complete view of session states
-    const currentSessionCardStates = new Map(
-      get(currentFlashcards).map(card => [card.id, { ...card }])
-    );
+  const sessionCards = get(masterSessionCards);
+  if (!sessionCards || sessionCards.length === 0) return;
 
-    const processedFlashcards = collection.flashcards.map(originalCard => {
-      const sessionState = currentSessionCardStates.get(originalCard.id);
-      // If a card was in a filtered list (e.g. failed cards), its state is in currentSessionCardStates.
-      // If it wasn't (e.g. it was a correctly answered card not in the failed list),
-      // its failedInSession state should be what it was before filtering.
-      // This logic still has a slight gap if markAnswer only updates visible cards.
-      // The most robust solution is for markAnswer to update a "master" list in memory.
-      // For now, this is an improvement:
-      let failedInSessionState = sessionState?.failedInSession || false;
-      if (!isFilteredViewActive && sessionState) { // If showing all, and card was in previous "all" list
-          failedInSessionState = sessionState.failedInSession || false;;
-      } else if (isFilteredViewActive && !sessionState) {
-          // Card was not in the failed list, so its failedInSession should be false
-          // (or its last known state if we had a master list)
-          failedInSessionState = false;
-      }
+  const restored = sessionCards.map(card => ({
+    ...card,
+    flipped: false // siempre restablecer
+  }));
 
-
-      return {
-        ...originalCard,
-        flipped: false,
-        timesViewed: sessionState?.timesViewed || originalCard.timesViewed || 0,
-        timesCorrect: sessionState?.timesCorrect || originalCard.timesCorrect || 0,
-        failedInSession: failedInSessionState,
-      };
-    });
-    currentFlashcards.set(processedFlashcards);
-  }
+  currentFlashcards.set(restored);
   currentIndex.set(0);
   isFilteredViewActive.set(false);
-  currentFlashcards.update(cards => {
-    if (cards.length > 0 && cards[0]) cards[0].flipped = false;
-    return cards;
-  });
-  sessionCompleted.set(false); // Reset on showing all cards
+  isUnansweredOnly.set(false);
+  // No reiniciamos la sesión si ya fue completada
 }
-
 
 // Reset store to initial state
 export function resetStudyState() {
@@ -340,6 +348,9 @@ export function resetStudyState() {
   timerActive.set(initialStudyState.timerActive);
   showOnlyFailed.set(initialStudyState.showOnlyFailed); // Legacy
   isFilteredViewActive.set(initialStudyState.isFilteredViewActive);
+  isUnansweredOnly.set(initialStudyState.isUnansweredOnly);
+
+  
 }
 
 // Removed explicit get function as it's now imported from 'svelte/store'
@@ -351,6 +362,7 @@ export function saveProgressForCurrentCollection(): void {
   const flashcardsToSaveState = get(currentFlashcards).map(fc => ({
     id: fc.id,
     failedInSession: fc.failedInSession || false,
+    answeredInSession: fc.answeredInSession || false, // ✅ NUEVO
     // other per-card state if needed in future
   }));
 
@@ -364,7 +376,9 @@ export function saveProgressForCurrentCollection(): void {
     currentScore: get(currentScore),
     sessionCompleted: get(sessionCompleted),
     flashcardsState: flashcardsToSaveState,
-    lastSavedTimestamp: currentTimestamp, // Save this for detailed session resume
+    lastSavedTimestamp: currentTimestamp,
+    lastReviewedIndex: get(currentIndex), // Assuming lastReviewedIndex is the same as currentIndex
+    lastReviewedTimestamp: currentTimestamp // Use currentTimestamp for lastReviewedTimestamp
   };
   saveStudyProgress(progressToSave); // From progressService
 
@@ -386,4 +400,48 @@ export function incrementTimesViewedForCurrentCard() {
     }
     return cards;
   });
+}
+
+
+
+export function setUnansweredOnlyView(active: boolean) {
+	isUnansweredOnly.set(active);
+}
+
+export function filterUnansweredCards() {
+	const collection = get(activeCollection);
+	if (!collection || !collection.flashcards) return;
+
+	// 1. Captura estado de sesión actual (lo que el usuario ha interactuado)
+	const sessionStateMap = new Map(
+		get(currentFlashcards).map(card => [card.id, { ...card }])
+	);
+
+	// 2. Reconstruye estado maestro fusionando original + sesión
+	const masterSessionCards: FlashcardStudy[] = collection.flashcards.map(original => {
+		const session = sessionStateMap.get(original.id);
+		return {
+			...original,
+			flipped: false,
+			timesViewed: session?.timesViewed ?? original.timesViewed ?? 0,
+			timesCorrect: session?.timesCorrect ?? original.timesCorrect ?? 0,
+			answeredInSession: session?.answeredInSession ?? false,
+			failedInSession: session?.failedInSession ?? false,
+			isDifficult: session?.isDifficult ?? original.isDifficult ?? false
+		};
+	});
+
+	// 3. Filtra solo las que no han sido respondidas
+	const unansweredCards = masterSessionCards.filter(card => !card.answeredInSession);
+
+	// 4. Aplica el filtro
+	if (unansweredCards.length > 0) {
+		currentFlashcards.set(unansweredCards);
+		currentIndex.set(0);
+		isFilteredViewActive.set(true);
+		sessionCompleted.set(false);
+	} else {
+		// Si no hay tarjetas sin responder, mostrar todo
+		showAllCards();
+	}
 }

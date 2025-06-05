@@ -45,6 +45,7 @@ export const PUT: RequestHandler = async ({ request, params }) => {
 			question: string;
 			answer: string;
 			pronunciation: string;
+			example: string;
 			imageUrl: string | null;
 			collectionId: string | null;
 			timesViewed: number;
@@ -56,6 +57,7 @@ export const PUT: RequestHandler = async ({ request, params }) => {
 			question,
 			answer,
 			pronunciation,
+			example,
 			imageUrl,
 			collectionId,
 			timesViewed,
@@ -70,6 +72,7 @@ export const PUT: RequestHandler = async ({ request, params }) => {
 		if (question !== undefined) dataToUpdate.question = question;
 		if (answer !== undefined) dataToUpdate.answer = answer;
 		if (pronunciation !== undefined) dataToUpdate.pronunciation = pronunciation;
+		if (example !== undefined) dataToUpdate.example = example;
 		if (imageUrl !== undefined) dataToUpdate.imageUrl = imageUrl === '' ? null : imageUrl;
 		if (timesViewed !== undefined) dataToUpdate.timesViewed = Number(timesViewed);
 		if (timesCorrect !== undefined) dataToUpdate.timesCorrect = Number(timesCorrect);

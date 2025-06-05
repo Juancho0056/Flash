@@ -21,6 +21,7 @@ model Flashcard {
   question       String
   answer         String
   pronunciation  String?     // ✅ Nueva propiedad opcional para pronunciación
+  example        String?     // ✅ Nuevo campo opcional
   imageUrl       String?
   collection     Collection? @relation(fields: [collectionId], references: [id])
   collectionId   String?

@@ -20,22 +20,27 @@
 		totalFlashcards,
 		loadCollectionForStudy,
 		flipCard,
-		markAnswer as markAnswerStore,
+		markAnswer,
 		nextCard,
 		previousCard,
 		shuffleFlashcards,
 		resetStudyState,
 		isFilteredViewActive, // Import new store state
+		isUnansweredOnly,
 		filterFailedCards, // Import new actions
 		showAllCards,
 		saveProgressForCurrentCollection, // Import saveProgressForCurrentCollection
-		incrementTimesViewedForCurrentCard
+		incrementTimesViewedForCurrentCard,
+		filterUnansweredCards,
+		setUnansweredOnlyView,
+		isReviewMode 
 	} from '$lib/stores/studyStore';
 	import type { CollectionWithFlashcards, FlashcardStudy } from '$lib/stores/studyStore';
 	import Modal from '$lib/components/Modal.svelte'; // Import Modal
 	import { toast } from '$lib/toastStore'; // Import toast
 	import { awardBadge, BadgeId } from '$lib/services/badgeService';
 	import { studyStats } from '$lib/stores/studyStats';
+
 
 	let collections: Collection[] = []; // For selection dropdown
 	let selectedCollectionId: string | undefined = undefined;
@@ -47,45 +52,26 @@
 	$: if ($currentCard) {
 		incrementTimesViewedForCurrentCard();
 	}
+	$: allBadgesUnlocked =
+		$sessionCompleted && $correctAnswers > 0 && $incorrectAnswers === 0;
 
-	function handleIncorrectAnswer(isDifficult: boolean = false) {
-		studyStats.update(stats => {
-			stats.totalViewed++;
-			stats.totalIncorrect++;
-			stats.correctStreak = 0;
-			if (isDifficult) stats.difficultAnswered++;
-			return stats;
-		});
+
+	
+	async function handleFilterUnansweredCards() {
+		filterUnansweredCards();
+		setUnansweredOnlyView(true); // Set the view to unanswered only
+		if ($currentCard) {
+			await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
+		}
 	}
 
-	function handleCorrectAnswer() {
-		studyStats.update(stats => {
-			stats.totalViewed++;
-			stats.totalCorrect++;
-			stats.correctStreak++;
-
-			if (stats.correctStreak > stats.longestStreak) {
-				stats.longestStreak = stats.correctStreak;
-			}
-
-			// 🏆 Desbloqueo de insignias por hitos alcanzados
-			if (stats.totalCorrect === 1) {
-				awardBadge(BadgeId.FIRST_SESSION_COMPLETED);
-			}
-
-			if (stats.totalCorrect === 10) {
-			awardBadge(BadgeId.TEN_CORRECT_IN_SESSION);
-			}
-
-			if (
-			stats.totalViewed > 0 &&
-			stats.totalCorrect === stats.totalViewed
-			) {
-				awardBadge(BadgeId.COLLECTION_MASTERED);
-			}
-
-			return stats;
-		});
+	async function handleFilterFailedCards() {
+		filterFailedCards(); // This action might change currentFlashcards and currentIndex
+		isFilteredViewActive.set(true); // Set the filtered view active
+		if ($currentCard) {
+			// If filter results in a card being shown, update its timesViewed
+			await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
+		}
 	}
 
 	async function fetchCollections() {
@@ -161,91 +147,51 @@
 		}
 	}
 
-	function markCardAsAnsweredInStore(isCorrect: boolean) {
-		currentFlashcards.update(cards => {
-			const idx = get(currentIndex);
-			const card = cards[idx];
-			if (!card || card.answeredInSession) return cards;
 
-			card.answeredInSession = true;
+async function handleMarkAnswer(isCorrect: boolean) {
+	if (!$currentCard || $currentCard.flipped || $currentCard.answeredInSession) return;
 
-			if (!isCorrect) {
-				card.failedInSession = true;
-				incorrectAnswers.update(n => n + 1);
-			} else {
-				correctAnswers.update(n => n + 1);
-				currentScore.update(n => n + 10);
-			}
-
-			return cards;
-		});
+	// feedback visual
+	if (feedbackTimeout) {
+		clearTimeout(feedbackTimeout);
+		feedbackTimeout = null;
 	}
+	answerFeedback = isCorrect ? 'correct' : 'incorrect';
 
-	async function handleMarkAnswer(isCorrect: boolean) {
-		if (!$currentCard) return;
-		if ($currentCard.flipped || $currentCard.answeredInSession) return;
+	// 👉 usar función del store
+	markAnswer(isCorrect);
 
-		// Mostrar retroalimentación visual
-		if (feedbackTimeout) {
-			clearTimeout(feedbackTimeout);
-			feedbackTimeout = null;
-		}
-		answerFeedback = isCorrect ? 'correct' : 'incorrect';
-
-		// 🔄 Actualiza estado en el store (una sola vez por sesión)
-		markCardAsAnsweredInStore(isCorrect);
-
-		// 🎯 Actualiza estadísticas globales y posibles insignias
-		if (isCorrect) {
-			handleCorrectAnswer();
-		} else {
-			handleIncorrectAnswer($currentCard.isDifficult);
-		}
-
+	// API update de estadísticas
+	if (!get(isReviewMode)) {
 		const cardToUpdate = { ...$currentCard };
 		const newTimesCorrect = cardToUpdate.timesCorrect + (isCorrect ? 1 : 0);
-
-		// 🔗 Sincroniza con backend solo timesCorrect
 		try {
-			const response = await fetch(`/api/flashcards/${cardToUpdate.id}`, {
+			await fetch(`/api/flashcards/${cardToUpdate.id}`, {
 				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ timesCorrect: newTimesCorrect })
 			});
-
-			if (response.ok) {
-				const updated = await response.json();
-				currentFlashcards.update(cards => {
-					const idx = cards.findIndex(c => c.id === cardToUpdate.id);
-					if (idx !== -1) {
-						cards[idx] = { ...cards[idx], ...updated };
-					}
-					return cards;
-				});
-			} else {
-				console.warn(`Failed to update stats for card ${cardToUpdate.id}`);
-			}
 		} catch (err) {
-			console.warn('Error updating stats via API:', (err as Error).message);
+			console.warn('Error updating stats via API:', err);
 		}
-
-		const allAnswered = get(currentFlashcards).every(fc => fc.answeredInSession);
-		const allCorrect = get(currentFlashcards).every(fc => fc.answeredInSession && !fc.failedInSession);
-
-		if (allAnswered) {
-			sessionCompleted.set(true); // Muestra el resumen
-
-			if (allCorrect) {
-				awardBadge(BadgeId.COLLECTION_MASTERED);
-			}
-		}
-
-		// ⏳ Oculta retroalimentación después de un tiempo
-		feedbackTimeout = window.setTimeout(() => {
-			answerFeedback = null;
-			feedbackTimeout = null;
-		}, 750);
 	}
+
+	// fin de sesión si todas respondidas
+	const allAnswered = get(currentFlashcards).every(fc => fc.answeredInSession);
+	const allCorrect = get(currentFlashcards).every(fc => fc.answeredInSession && !fc.failedInSession);
+
+	if (allAnswered) {
+		sessionCompleted.set(true);
+		if (allCorrect) {
+			awardBadge(BadgeId.COLLECTION_MASTERED);
+		}
+	}
+
+	feedbackTimeout = window.setTimeout(() => {
+		answerFeedback = null;
+		feedbackTimeout = null;
+	}, 750);
+}
 
 
 	async function handleNavigate(direction: 'next' | 'prev') {
@@ -271,20 +217,10 @@
 		}
 	}
 
-	async function handleFilterFailedCards() {
-		filterFailedCards(); // This action might change currentFlashcards and currentIndex
-		if ($currentCard) {
-			// If filter results in a card being shown, update its timesViewed
-			await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
-		}
-	}
 
 	async function handleShowAllCards() {
 		showAllCards(); // This action will change currentFlashcards and currentIndex
-		if ($currentCard) {
-			// Update timesViewed for the new current card shown from the full list
-			await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
-		}
+		setUnansweredOnlyView(false);
 	}
 
 	onMount(async () => { // Make onMount async to await fetchCollections
@@ -319,14 +255,26 @@
 	});
 
 	async function handleStudyAgain() {
-		if ($activeCollection && selectedCollectionId) {
+		
+		const allAnswered = $correctAnswers + $incorrectAnswers === $totalFlashcards;
+		const allCorrect = $correctAnswers === $totalFlashcards;
+			console.log('handleStudyAgain called');
+			console.log('allAnswered:', allAnswered);
+			console.log('allCorrect:', allCorrect);
+
+		isReviewMode.set(allAnswered && allCorrect);
+
+		if ($activeCollection && selectedCollectionId && !isReviewMode) {
 			// selectedCollectionId should still hold the ID of the current collection
 			// handleLoadCollectionForStudy uses selectedCollectionId to load
 			await handleLoadCollectionForStudy();
-		} else {
+		} else if ($activeCollection && selectedCollectionId && isReviewMode) {
 			// Fallback or error if no active collection to study again
 			sessionCompleted.set(false); // Close modal
-			errorMessage = "Could not restart session: No active collection found.";
+		}else {
+			// If no collection is selected, reset the study state
+			//resetStudyState();
+			errorMessage = "No collection selected. Please choose a collection to study.";
 		}
 		// loadCollectionForStudy (called by handleLoadCollectionForStudy) resets sessionCompleted in the store
 	}
@@ -408,11 +356,18 @@
 		bind:isOpen={$sessionCompleted}
 		title="Session Summary"
 		message={`Collection: ${$activeCollection?.name || 'N/A'}\nTotal Cards: ${$totalFlashcards}\nCorrect: ${$correctAnswers}\nIncorrect: ${$incorrectAnswers}\nFinal Score: ${$currentScore}`}
-		confirmText="Study Again (Same Collection)"
+		confirmText={$correctAnswers > 0 && $incorrectAnswers === 0 ? 'Repasar sin nuevos logros' : 'Study Again (Same Collection)'}
+		disableConfirm={false}
 		cancelText="Close / Pick New"
 		on:confirm={handleStudyAgain}
 		on:cancel={handleCloseSummary}
-	/>
+	>
+		{#if allBadgesUnlocked}
+			<p class="mt-4 text-sm text-green-700 bg-green-100 rounded-md p-2">
+				🏆 Has completado esta colección perfectamente y ya obtuviste todos los logros disponibles. ¡Bien hecho!
+			</p>
+		{/if}
+	</Modal>
 
 	<h1 class="mb-6 text-2xl font-bold text-gray-800 md:text-3xl">Study Mode</h1>
 
@@ -455,11 +410,17 @@
 	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
 		<div class="study-area rounded-lg bg-white p-6 shadow-xl md:p-8">
 			<SessionStats />
-			<div class="mb-4 flex items-center justify-between">
+			<div class="pt-4 mb-4 flex items-center justify-between">
 				<p class="text-sm text-gray-600">
 					Card {$currentIndex + 1} of {$totalFlashcards}
 					{#if $activeCollection.name}in "{$activeCollection.name}"{/if}
-					{#if $isFilteredViewActive} (Failed Only){/if}
+					{#if $isUnansweredOnly}
+						(Unanswered Only)
+					{:else if $isFilteredViewActive}
+						(Failed Only)
+					{/if}
+					
+					
 				</p>
 				<div class="flex space-x-2">
 					<button
@@ -468,6 +429,7 @@
 					>
 						Shuffle
 					</button>
+					
 					{#if $isFilteredViewActive}
 						<button
 							on:click={handleShowAllCards}
@@ -483,6 +445,12 @@
 						>
 							Study Failed Only
 						</button>
+						<button
+							on:click={handleFilterUnansweredCards}
+							class="rounded-md border border-purple-300 bg-purple-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-1"
+						>
+							Unanswered Only
+						</button>
 					{/if}
 				</div>
 			</div>
@@ -497,13 +465,13 @@
 
 			{#if $currentCard}
 				<div
-					class="card-wrapper mx-auto transition-all duration-300 ease-in-out"
+					class="card-wrapper mx-auto transition-all duration-300 ease-in-out flex-grow flex items-center justify-center"
 					class:border-green-500={answerFeedback === 'correct'}
 					class:border-red-500={answerFeedback === 'incorrect'}
 					class:shadow-green-xl={answerFeedback === 'correct'}
 					class:shadow-red-xl={answerFeedback === 'incorrect'}
 					class:border-4={answerFeedback !== null}
-					style="max-width: 500px; min-height: 300px;"
+					style="max-width: 500px; min-height: 260px;"
 				>
 					
 					<Card
@@ -511,11 +479,12 @@
 						back={$currentCard.answer}
 						imageUrl={$currentCard.imageUrl}
 						pronunciation={$currentCard.pronunciation}
+						example={$currentCard.example}
 						flipped={$currentCard.flipped || false}
 						on:toggle={(e) => flipCard($currentCard!.id, e.detail.flipped)}
 						/>
 				</div>
-				<div class="mt-3 flex items-center justify-center text-xs text-gray-500">
+				<div class="flex items-center justify-center text-xs text-gray-500">
 					<p class="mr-4">Viewed: {$currentCard.timesViewed}, Correct: {$currentCard.timesCorrect}</p>
 					<button
 						on:click={handleToggleDifficult}
@@ -555,14 +524,14 @@
 				<div class="flex space-x-3">
 					<button
 						on:click={() => handleMarkAnswer(false)}
-						disabled={!$currentCard || $currentCard.flipped}
+						disabled={!$currentCard || $currentCard.flipped || $currentCard.answeredInSession}
 						class="rounded-md bg-red-500 px-4 py-3 text-sm text-white transition-colors hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Incorrect
 					</button>
 					<button
 						on:click={() => handleMarkAnswer(true)}
-						disabled={!$currentCard || $currentCard.flipped}
+						disabled={!$currentCard || $currentCard.flipped || $currentCard.answeredInSession}
 						class="rounded-md bg-green-500 px-4 py-3 text-sm text-white transition-colors hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Correct
@@ -586,7 +555,7 @@
 		</p>
 	{/if}
 
-	<div class="mt-8 text-center">
+	<div class="mt-2 text-center">
 		<a href="/" class="text-indigo-600 transition-colors hover:text-indigo-800 hover:underline"
 			>Back to Collections List</a
 		>

@@ -159,11 +159,12 @@
 
     <h2 class="text-xl md:text-2xl font-semibold text-gray-700 mb-4 mt-8">Flashcards in "{collection.name}" ({localFlashcards.length})</h2>
     {#if localFlashcards.length > 0}
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+       <div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         {#each localFlashcards as flashcard (flashcard.id)}
-          <div class="flashcard-item border rounded-lg p-4 shadow-sm bg-white flex flex-col">
-            <div class="flex-grow mb-3">
-              <Card front={flashcard.question} back={flashcard.answer} imageUrl={flashcard.imageUrl} pronunciation={flashcard.pronunciation} />
+          <div
+							class={`flashcard-item flex flex-col rounded-xl p-4 transition-transform duration-200  border border-gray-200 bg-white shadow-sm`}>
+            <div class="flex-grow mb-3 flex items-center justify-center">
+              <Card front={flashcard.question} back={flashcard.answer} imageUrl={flashcard.imageUrl} pronunciation={flashcard.pronunciation} example={flashcard.example} />
             </div>
             <div class="text-xs text-gray-500 mb-3">
               <p>Viewed: {flashcard.timesViewed}, Correct: {flashcard.timesCorrect}</p>

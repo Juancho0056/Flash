@@ -9,11 +9,12 @@
 	export let confirmText = 'Confirm';
 	export let cancelText = 'Cancel';
 	export let isLoading = false; // For showing loading state on confirm button
-
+	export let disableConfirm = false;
 	const dispatch = createEventDispatcher();
 
 	function handleConfirm() {
 		if (isLoading) return;
+		console.log('Confirm clicked');
 		dispatch('confirm');
 	}
 
@@ -50,7 +51,7 @@
 			<h2 id="modal-title" class="mb-4 text-xl font-semibold text-gray-800">{title}</h2>
 
 			<p id="modal-message" class="mb-6 whitespace-pre-wrap text-gray-600">{message}</p>
-
+			<slot />
 			<div class="flex justify-end space-x-4">
 				<button
 					on:click={handleCancel}
@@ -60,10 +61,10 @@
 					{cancelText}
 				</button>
 				<button
-					on:click={handleConfirm}
-					disabled={isLoading}
-					class="flex items-center justify-center rounded-md bg-red-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-60"
-				>
+						on:click={handleConfirm}
+						disabled={isLoading || disableConfirm} 
+						class="flex items-center justify-center rounded-md bg-red-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-60"
+					>
 					{#if isLoading}
 						<svg
 							class="-ml-1 mr-2 h-4 w-4 animate-spin text-white"

@@ -214,6 +214,39 @@
 			collectionLastStudied = getAllLastStudiedTimestamps();
 		}
 	});
+
+	function selectAll() {
+		const updated = selectedCollection?.flashcards?.map(f => ({ ...f, selected: true })) || [];
+		selectedFlashcardIdsForExport = updated.map(f => f.id);
+		if (selectedCollection) selectedCollection.flashcards = updated;
+	}
+
+	function selectFirst(n: number) {
+		const selected = selectedCollection?.flashcards?.slice(0, n) || [];
+		const updated = selectedCollection?.flashcards?.map(f => ({ ...f, selected: selected.includes(f) })) || [];
+		selectedFlashcardIdsForExport = selected.map(f => f.id);
+		if (selectedCollection) selectedCollection.flashcards = updated;
+	}
+
+	function selectLast(n: number) {
+		const selected = selectedCollection?.flashcards?.slice(-n) || [];
+		const updated = selectedCollection?.flashcards?.map(f => ({ ...f, selected: selected.includes(f) })) || [];
+		selectedFlashcardIdsForExport = selected.map(f => f.id);
+		if (selectedCollection) selectedCollection.flashcards = updated;
+	}
+
+	function selectRandom(n: number) {
+		const shuffled = [...(selectedCollection?.flashcards || [])].sort(() => 0.5 - Math.random());
+		const selected = shuffled.slice(0, n);
+		const updated = selectedCollection?.flashcards?.map(f => ({ ...f, selected: selected.includes(f) })) || [];
+		selectedFlashcardIdsForExport = selected.map(f => f.id);
+		if (selectedCollection) selectedCollection.flashcards = updated;
+	}
+
+  $: selectedCollection?.flashcards?.forEach(flashcard => {
+    flashcard.selected = selectedFlashcardIdsForExport.includes(flashcard.id);
+  });
+
 </script>
 
 <svelte:head>
@@ -255,8 +288,9 @@
 	{:else}
 		<div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
 			{#each collections as collection (collection.id)}
+				
 				<div
-					class="cursor-pointer rounded-lg border p-4 shadow-sm transition-shadow hover:shadow-md"
+					class="cursor-pointer rounded-xl border border-gray-200 bg-gray-50 p-6 hover:shadow-md"
 					class:ring-2={selectedCollection?.id === collection.id}
 					class:ring-blue-500={selectedCollection?.id === collection.id}
 					class:bg-blue-50={selectedCollection?.id === collection.id}
@@ -276,6 +310,13 @@
 						on:click|stopPropagation
 						class="mt-1 inline-block text-xs text-blue-600 hover:underline">View Collection</a
 					>
+					<a
+					href={`/admin/collections/${collection.id}/import`}
+					on:click|stopPropagation
+					class="mt-1 inline-block text-xs text-indigo-600 hover:underline"
+					>
+						📥 Import Flashcards
+					</a>
 				</div>
 			{/each}
 		</div>
@@ -290,36 +331,34 @@
 			>
 				Flashcards in "{selectedCollection.name}"
 			</h2>
-			<div class="mb-6 rounded-lg border bg-gray-50 p-4 shadow-sm">
+			<!-- Controles de selección rápida -->
+			<div class="flex gap-3 flex-wrap my-4">
+			<button on:click={selectAll} class="btn bg-blue-500 text-white px-3 py-1 rounded cursor-pointer">Select All</button>
+			<button on:click={() => selectFirst(10)} class="btn bg-green-500 text-white px-3 py-1 rounded cursor-pointer">First 10</button>
+			<button on:click={() => selectLast(10)} class="btn bg-purple-500 text-white px-3 py-1 rounded cursor-pointer">Last 10</button>
+			<button on:click={() => selectRandom(10)} class="btn bg-indigo-500 text-white px-3 py-1 rounded cursor-pointer">Random 10</button>
+			</div>
+
+			<div class="rounded-xl border border-gray-200 bg-gray-50 p-6 shadow">
 				<h3 class="mb-3 text-lg font-semibold text-gray-700">Export Options</h3>
-				<div class="flex flex-wrap items-center gap-4">
-					<div>
-						<label for="layout" class="mb-1 block text-sm font-medium text-gray-700"
-							>Cards per page:</label
-						>
-						<select
-							id="layout"
-							bind:value={exportLayout}
-							class="mt-1 block w-full rounded-md border-gray-300 py-2 pl-3 pr-10 text-base shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
-						>
-							<option value={4}>4 (2x2)</option><option value={6}>6 (3x2)</option><option value={9}
-								>9 (3x3)</option
-							>
-						</select>
-					</div>
-					<button
-						on:click={handleExportPdf}
-						disabled={selectedFlashcardIdsForExport.length === 0 || isLoadingFlashcards}
-						class="rounded-md bg-green-600 px-4 py-2 text-white shadow-sm transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-						>Export Selected to PDF</button
-					>
+				<div class="flex flex-wrap items-end gap-4">
+				<div class="flex flex-col">
+					<label for="layout" class="text-sm text-gray-600 mb-1">Cards per page:</label>
+					<select bind:value={exportLayout} class="rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:ring focus:ring-indigo-500 text-sm cursor-pointer">
+					<option value={4}>4 (2x2)</option>
+					<option value={6}>6 (3x2)</option>
+					<option value={9}>9 (3x3)</option>
+					</select>
+				</div>
+				<button on:click={handleExportPdf} disabled={selectedFlashcardIdsForExport.length === 0 || isLoadingFlashcards} class="cursor-pointer rounded bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-white text-sm font-medium shadow disabled:cursor-not-allowed disabled:bg-gray-300">
+					Export Selected to PDF
+				</button>
 				</div>
 				{#if selectedFlashcardIdsForExport.length > 0}
-					<p class="mt-3 text-sm text-gray-600">
-						{selectedFlashcardIdsForExport.length} card(s) selected for export.
-					</p>
+				<p class="mt-3 text-sm text-gray-600">{selectedFlashcardIdsForExport.length} card(s) selected for export.</p>
 				{/if}
 			</div>
+
 
 			{#if isLoadingFlashcards}
 				<p class="text-gray-500">Loading flashcards...</p>
@@ -331,28 +370,35 @@
 					>
 				</p>
 			{:else}
-				<div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+				 <div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
 					{#each selectedCollection.flashcards as flashcard (flashcard.id)}
-						<div class="flashcard-item flex flex-col rounded-lg border bg-white p-4 shadow-sm">
-							<div class="mb-3 flex items-center justify-between">
+						<div
+							class={`flashcard-item flex flex-col rounded-xl p-4 transition-transform duration-200 hover:scale-[1.01] ${
+								flashcard.selected
+								? 'ring-2 ring-indigo-500 bg-indigo-50 border-transparent'
+								: 'border border-gray-200 bg-white shadow-sm'
+							}`}
+>
+							<div class="mb-3 flex items-center">
 								<div class="flex items-center">
 									<input
 										type="checkbox"
 										id="select-{flashcard.id}"
 										checked={flashcard.selected}
 										on:change={() => toggleFlashcardSelection(flashcard.id)}
-										class="mr-3 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+										class="mr-2 h-4 w-4 text-indigo-600 rounded focus:ring focus:ring-indigo-500 border-gray-300"
 									/>
 									<label for="select-{flashcard.id}" class="text-sm font-medium text-gray-700"
-										>Select</label
+										></label
 									>
 								</div>
 							</div>
-							<div class="mb-3 flex-grow">
+							<div class="flex-grow mb-3 flex items-center justify-center">
 								<Card
 									front={flashcard.question}
 									back={flashcard.answer}
 									pronunciation={flashcard.pronunciation}
+									example={flashcard.example}
 									imageUrl={flashcard.imageUrl}
 								/>
 							</div>
@@ -361,7 +407,7 @@
 								<p>Created: {new Date(flashcard.createdAt).toLocaleDateString()}</p>
 								<p>Updated: {new Date(flashcard.updatedAt).toLocaleDateString()}</p>
 							</div>
-							<div class="mt-auto flex justify-start space-x-2 border-t border-gray-100 pt-3">
+							<div class="mt-auto flex justify-start gap-2 border-t border-gray-100 pt-3">
 								<a
 									href="/admin/new?edit={flashcard.id}"
 									class="rounded bg-yellow-400 px-3 py-1 text-xs text-yellow-800 transition-colors hover:bg-yellow-500"
@@ -369,7 +415,7 @@
 								>
 								<button
 									on:click={() => openDeleteConfirmModal(flashcard.id, flashcard.question)}
-									class="rounded bg-red-500 px-3 py-1 text-xs text-white transition-colors hover:bg-red-600"
+									class="rounded bg-red-500 hover:bg-red-600 px-3 py-1 text-xs font-medium text-white cursor-pointer"
 									title="Delete this flashcard">🗑️ Delete</button
 								>
 							</div>

@@ -44,7 +44,7 @@ export const POST: RequestHandler = async ({ request }) => {
     if (flashcards.length < ids.length) {
       console.warn(`PDF Export: Not all requested card IDs were found. Found ${flashcards.length} out of ${ids.length}.`);
     }
-
+    console.log(`Exporting ${flashcards.length} flashcards to PDF with layout ${layout}`);
     const pdfBuffer = await generarPdfDeFlashcards(flashcards as Flashcard[], { layout, margins, gutter });
 
     if (!pdfBuffer || pdfBuffer.length === 0) {
