@@ -1,7 +1,8 @@
 import { studyStats } from '$lib/stores/studyStats';
-import { writable, derived, get } from 'svelte/store'; // Added get here explicitly
+import { writable, derived, get } from 'svelte/store';
 import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
-import { awardBadge, BadgeId } from '$lib/services/badgeService';
+import { awardBadge, BadgeId } from '$lib/services/badgeService'; // Import BadgeId and awardBadge
+import { globalUserStats, incrementTotalCorrectAnswersAllTime } from '$lib/stores/globalUserStats'; // Import global stats
 import { loadStudyProgress, saveStudyProgress, type StudyProgress } from '$lib/services/progressService';
 import { updateLastStudiedTimestamp } from '$lib/services/collectionMetaService';
 import { saveSessionToHistory } from '$lib/services/studyHistoryService';
@@ -25,7 +26,7 @@ const initialStudyState = {
   correctAnswers: 0,
   incorrectAnswers: 0,
   timerActive: false, // Example, can be expanded for session timing
-  showOnlyFailed: false, // Kept for potential direct use, though isFilteredViewActive is primary
+  // showOnlyFailed: false, // Kept for potential direct use, though isFilteredViewActive is primary -> REMOVED
   isFilteredViewActive: false,
   isUnansweredOnly: false, // For filtering unanswered cards
   currentScore: 0,
@@ -42,7 +43,7 @@ export const incorrectAnswers = writable<number>(initialStudyState.incorrectAnsw
 export const currentScore = writable<number>(initialStudyState.currentScore); // Score store
 export const sessionCompleted = writable<boolean>(initialStudyState.sessionCompleted); // New store
 export const timerActive = writable<boolean>(initialStudyState.timerActive);
-export const showOnlyFailed = writable<boolean>(initialStudyState.showOnlyFailed); // Legacy or specific use
+// export const showOnlyFailed = writable<boolean>(initialStudyState.showOnlyFailed); // Legacy or specific use -> REMOVED
 export const isFilteredViewActive = writable<boolean>(initialStudyState.isFilteredViewActive);
 export const isUnansweredOnly = writable<boolean>(initialStudyState.isUnansweredOnly);
 export const isReviewMode = writable<boolean>(initialStudyState.isReviewMode);
@@ -100,7 +101,7 @@ export function loadCollectionForStudy(collectionData: CollectionWithFlashcards 
 
   loadReviewModeFor(collectionData.id);
   const savedProgress = loadStudyProgress(collectionData.id);
-  const review = get(isReviewMode);
+  const review = get(isReviewMode); // Check review mode status BEFORE loading progress
 
   activeCollection.set(collectionData);
   console.log(`Loading collection for study: ${collectionData.name} (${collectionData.id})`);
@@ -131,46 +132,63 @@ export function loadCollectionForStudy(collectionData: CollectionWithFlashcards 
   });
 
   // Restaurar stats si existen
-  if (savedProgress?.studyStats) {
-    studyStats.set(savedProgress.studyStats);
-  }
+  // Load initialFlashcards state (failedInSession, answeredInSession) REGARDLESS of review mode
+  // as this reflects the actual learned state of cards.
+  currentFlashcards.set(initialFlashcards);
+  masterSessionCards.set(initialFlashcards);
 
-if (!review) {
-  if (savedProgress) {
-    currentIndex.set(savedProgress.currentIndex);
-    correctAnswers.set(savedProgress.correctAnswers);
-    incorrectAnswers.set(savedProgress.incorrectAnswers);
-    currentScore.set(savedProgress.currentScore);
-
-    if (savedProgress.sessionCompleted) {
-      sessionCompleted.set(true); // ✅ Restauramos correctamente
-    } else {
-      sessionCompleted.set(false);
-    }
-  } else {
-    // No hay progreso previo
-    currentIndex.set(0);
+  if (review) {
+    // In Review Mode: Reset session-specific stats, keep learned card states.
     correctAnswers.set(0);
     incorrectAnswers.set(0);
     currentScore.set(0);
-    sessionCompleted.set(false);
+    studyStats.set({ // Reset to initial study stats
+      totalViewed: 0,
+      totalCorrect: 0,
+      totalIncorrect: 0,
+      correctStreak: 0,
+      longestStreak: 0,
+      difficultAnswered: 0,
+      badgesUnlocked: [] // Badges probably should not be re-unlocked in review
+    });
+    currentIndex.set(0); // Start from the beginning
+    sessionCompleted.set(false); // A review session is a new, uncompleted session
+    sessionStartTime.set(Date.now()); // Fresh start time for review session
+  } else {
+    // Not in Review Mode: Load saved progress or set defaults.
+    if (savedProgress) {
+      currentIndex.set(savedProgress.currentIndex);
+      correctAnswers.set(savedProgress.correctAnswers);
+      incorrectAnswers.set(savedProgress.incorrectAnswers);
+      currentScore.set(savedProgress.currentScore);
+      sessionCompleted.set(savedProgress.sessionCompleted);
+      studyStats.set(savedProgress.studyStats); // Restore session stats
+      sessionStartTime.set(savedProgress.sessionStartTime || Date.now());
+    } else {
+      // No saved progress and not in review mode: Start fresh.
+      currentIndex.set(0);
+      correctAnswers.set(0);
+      incorrectAnswers.set(0);
+      currentScore.set(0);
+      sessionCompleted.set(false);
+      studyStats.set({ // Reset to initial study stats
+        totalViewed: 0,
+        totalCorrect: 0,
+        totalIncorrect: 0,
+        correctStreak: 0,
+        longestStreak: 0,
+        difficultAnswered: 0,
+        badgesUnlocked: []
+      });
+      sessionStartTime.set(Date.now());
+    }
   }
-} else {
-  // review === true
-  currentIndex.set(savedProgress?.currentIndex ?? 0);
-  correctAnswers.set(savedProgress?.correctAnswers ?? 0);
-  incorrectAnswers.set(savedProgress?.incorrectAnswers ?? 0);
-  currentScore.set(savedProgress?.currentScore ?? 0);
-  sessionCompleted.set(savedProgress?.sessionCompleted ?? false);
-}
 
-  // Estado global final
-  sessionStartTime.set(Date.now());
-  currentFlashcards.set(initialFlashcards);
-  masterSessionCards.set(initialFlashcards);
+  // Common final setup
   timerActive.set(true);
-  showOnlyFailed.set(false);
+  // showOnlyFailed.set(false); // REMOVED
   isFilteredViewActive.set(false);
+  isUnansweredOnly.set(false); // Ensure this is reset too
   currentIndex.update(n => n);
 }
 
@@ -190,18 +208,9 @@ export function flipCard(cardId: string, flippedState: boolean) {
 export function markAnswer(isCorrect: boolean) {
 	const current = get(currentCard);
 
-
-  if (isCorrect && current  && current.failedInSession) {
-    currentFlashcards.update((cards) =>
-      cards.map((c) =>
-        c.id === current.id
-          ? { ...c, failedInSession: false }
-          : c
-      )
-    );
-  }
 	// ✅ Protección inmediata
-	if (!current || get(sessionCompleted)) return;
+	if (!current || (get(sessionCompleted) && !get(isFilteredViewActive))) return; // Allow marking answers if session is completed BUT a filter is active
+  // If no filter active and session is completed, then no more marking.
   console.log('Current card:', current);
   if (current.answeredInSession && !current.failedInSession) {
     console.warn('Card already answered, skipping.');
@@ -250,54 +259,100 @@ export function markAnswer(isCorrect: boolean) {
 			stats.totalIncorrect++;
 			stats.correctStreak = 0;
 		}
-		return stats;
+		return stats; // Return the modified stats object
 	});
 
-	// 🧠 Actualizar contadores numéricos
+	// 🧠 Actualizar contadores numéricos y otorgar insignias relacionadas
 	if (isCorrect) {
 		correctAnswers.update(n => n + 1);
 		currentScore.update(s => s + POINTS_PER_CORRECT_ANSWER);
+		incrementTotalCorrectAnswersAllTime(); // Increment global all-time correct answers
 
-		if (get(correctAnswers) === 10) {
+		// Award badges based on updated stats
+		const currentSessionCorrectAnswers = get(correctAnswers);
+		const currentSessionStreak = get(studyStats).correctStreak;
+		const allTimeCorrect = get(globalUserStats).totalCorrectAnswersAllTime;
+
+		if (currentSessionCorrectAnswers === 10) { // This is total correct in session, not streak
 			awardBadge(BadgeId.TEN_CORRECT_IN_SESSION);
 		}
+		if (currentSessionStreak === 5) {
+			awardBadge(BadgeId.STREAK_5);
+		}
+		if (currentSessionStreak === 10) {
+			awardBadge(BadgeId.STREAK_10);
+		}
+		if (allTimeCorrect === 50) {
+			awardBadge(BadgeId.CORRECT_50);
+		}
+
 	} else {
 		incorrectAnswers.update(n => n + 1);
 	}
 
-	// ✅ Validar final de sesión
+	// ✅ Validar final de sesión y otorgar insignias relacionadas
 	const allAnswered = get(currentFlashcards).every(fc => fc.answeredInSession);
 	if (get(currentFlashcards).length > 0 && allAnswered) {
-		sessionCompleted.set(true);
-		awardBadge(BadgeId.FIRST_SESSION_COMPLETED);
+		sessionCompleted.set(true); // Set session as completed
+		awardBadge(BadgeId.FIRST_SESSION_COMPLETED); // Award first session completion badge
 
+		// Check for collection mastery
 		if (get(incorrectAnswers) === 0 && get(correctAnswers) === get(currentFlashcards).length) {
 			awardBadge(BadgeId.COLLECTION_MASTERED);
 			const collection = get(activeCollection);
 			if (collection) {
-				saveReviewModeFor(collection.id, true);
+				saveReviewModeFor(collection.id, true); // Save review mode for this collection
 			}
 		}
 
 		// 🧾 Guardar historial
-		const collection = get(activeCollection);
-		if (collection) {
-			saveSessionToHistory({
-				collectionId: collection.id,
-				collectionName: collection.name,
-				timestamp: Date.now(),
-				totalCards: get(currentFlashcards).length,
-				correct: get(correctAnswers),
-				incorrect: get(incorrectAnswers),
-				score: get(currentScore),
-				streak: get(studyStats).correctStreak,
-				longestStreak: get(studyStats).longestStreak,
-				durationMs: Date.now() - get(sessionStartTime) // Define esto al iniciar la sesión
-			});
-		}
+		_saveCompletedSessionToHistory(); // Call internal function
 	}
 
-  saveProgressForCurrentCollection();
+  saveProgressForCurrentCollection(); // Save resumable progress
+}
+
+// Internal function to save a completed session (full or filtered) to history
+function _saveCompletedSessionToHistory() {
+	const collection = get(activeCollection);
+	if (!collection) return;
+
+	const sessionTypeVal: 'full' | 'failed_only' | 'unanswered_only' | 'review' = get(isReviewMode)
+		? 'review'
+		: get(isFilteredViewActive)
+		? get(isUnansweredOnly)
+			? 'unanswered_only'
+			: 'failed_only'
+		: 'full';
+
+	let statusVal: 'completed' | 'mastered' = 'completed';
+	if (
+		sessionTypeVal === 'full' && !get(isReviewMode) && // Mastery only for full, non-review sessions
+		get(incorrectAnswers) === 0 &&
+		get(correctAnswers) === get(masterSessionCards).length
+	) {
+		statusVal = 'mastered';
+	}
+
+	// For 'completed' or 'mastered' sessions, totalCards studied is the length of the set just completed.
+	const cardsInThisSpecificSession = get(currentFlashcards).length;
+
+	saveSessionToHistory({ // This calls the imported service function
+		collectionId: collection.id,
+		collectionName: collection.name,
+		timestamp: Date.now(), // Session end time
+		sessionStartTime: get(sessionStartTime),
+		durationMs: Date.now() - get(sessionStartTime),
+		totalCards: cardsInThisSpecificSession, // Cards in this particular completed segment
+		originalCollectionSize: get(masterSessionCards).length,
+		correct: get(correctAnswers),
+		incorrect: get(incorrectAnswers),
+		score: get(currentScore),
+		streak: get(studyStats).correctStreak,
+		longestStreak: get(studyStats).longestStreak,
+		sessionType: sessionTypeVal,
+		status: statusVal
+	});
 }
 
 
@@ -347,55 +402,33 @@ export function shuffleFlashcards() {
 
 // Function to filter for failed cards
 export function filterFailedCards() {
-  const collection = get(activeCollection);
-  if (!collection || !collection.flashcards) {
-    console.warn('No active collection to filter.');
-    return;
-  }
-
-  // Create a map of current flashcard states (including failedInSession) from the complete list in activeCollection
-  // This ensures we have the latest failedInSession status for all cards, not just those currently visible if previously filtered.
-  const currentSessionCardStates = new Map(
-    get(currentFlashcards).map(card => [card.id, { ...card }])
-  );
-
-  const allCardsWithUpToDateState = collection.flashcards.map(originalCard => {
-    const sessionState = currentSessionCardStates.get(originalCard.id);
-    return {
-      ...originalCard,
-      flipped: false,
-      timesViewed: sessionState?.timesViewed || originalCard.timesViewed || 0,
-      timesCorrect: sessionState?.timesCorrect || originalCard.timesCorrect || 0,
-      failedInSession: sessionState?.failedInSession || false,
-      answeredInSession: sessionState?.answeredInSession ?? false
-    };
-  });
-
-  const failedCards = allCardsWithUpToDateState.filter(card => card.failedInSession);
+  const allCards = get(masterSessionCards);
+  const failedCards = allCards.filter(card => card.failedInSession);
 
   if (failedCards.length > 0) {
-    currentFlashcards.set(failedCards.map(fc => ({ ...fc, flipped: false })));
+    currentFlashcards.set(failedCards.map(fc => ({ ...fc, flipped: false }))); // Ensure cards are not flipped when entering mode
     currentIndex.set(0);
     isFilteredViewActive.set(true);
-    if (failedCards.length > 0 && failedCards[0]) {
-      failedCards[0].flipped = false; // Ensure new current card is not flipped
-    }
-    currentFlashcards.set(failedCards); // Update again to ensure reactivity on the flipped state of first card
+    isUnansweredOnly.set(false); // Not in "unanswered only" mode
+    // sessionCompleted should not be reset here, allow completing the filtered set
   } else {
+    // No failed cards to show. If already in a filtered view, show all. Otherwise, do nothing (UI should prevent entering).
     if (get(isFilteredViewActive)) {
-      showAllCards(); // This will also reset sessionCompleted to false
-      return;
+      showAllCards();
     }
+    // Consider a toast message or similar if user tries to activate and there are none (handled in UI)
   }
 }
 
 export function showAllCards() {
-  currentFlashcards.set(get(masterSessionCards));
+  currentFlashcards.set(get(masterSessionCards).map(fc => ({ ...fc, flipped: false }))); // Reset flipped state for all
   isFilteredViewActive.set(false);
-  showOnlyFailed.set(false);
+  isUnansweredOnly.set(false); // Ensure this is also reset
+  // showOnlyFailed.set(false); // REMOVED
   
-  // ❗️ Solo restablecer si la sesión realmente no está completa
-  const allAnswered = get(currentFlashcards).every(fc => fc.answeredInSession);
+  // Re-evaluate sessionCompleted state only if not already truly completed with all cards
+  const masterCards = get(masterSessionCards);
+  const allAnswered = masterCards.every(fc => fc.answeredInSession);
   const allCorrect = get(currentFlashcards).every(fc => fc.answeredInSession && !fc.failedInSession);
   
   if (!allAnswered || !allCorrect) {
@@ -413,23 +446,26 @@ export function resetStudyState() {
   currentScore.set(initialStudyState.currentScore); // Reset score
   sessionCompleted.set(initialStudyState.sessionCompleted); // Reset session completed state
   timerActive.set(initialStudyState.timerActive);
-  showOnlyFailed.set(initialStudyState.showOnlyFailed); // Legacy
+  // showOnlyFailed.set(initialStudyState.showOnlyFailed); // REMOVED
   isFilteredViewActive.set(initialStudyState.isFilteredViewActive);
   isUnansweredOnly.set(initialStudyState.isUnansweredOnly);
-
-  
 }
 
-// Removed explicit get function as it's now imported from 'svelte/store'
 
 export function saveProgressForCurrentCollection(): void {
 	const collection = get(activeCollection);
 	if (!collection) return;
 
-	const flashcardsToSaveState = get(currentFlashcards).map(fc => ({
+	if (!collection || get(isReviewMode)) { // Do not save progress if in review mode
+    // console.log('In review mode, progress not saved.');
+    return;
+  }
+
+	// Save state of ALL cards from masterSessionCards
+	const flashcardsToSaveState = get(masterSessionCards).map(fc => ({
 		id: fc.id,
-		failedInSession: fc.failedInSession || false,
-		answeredInSession: fc.answeredInSession || false
+		failedInSession: fc.failedInSession || false, // Ensure defaults if undefined
+		answeredInSession: fc.answeredInSession || false // Ensure defaults if undefined
 	}));
 
 	const currentTimestamp = Date.now();
@@ -441,12 +477,10 @@ export function saveProgressForCurrentCollection(): void {
 		incorrectAnswers: get(incorrectAnswers),
 		currentScore: get(currentScore),
 		sessionCompleted: get(sessionCompleted),
-		flashcardsState: flashcardsToSaveState,
+		flashcardsState: flashcardsToSaveState, // Now uses master list
 		lastSavedTimestamp: currentTimestamp,
-		lastReviewedIndex: get(currentIndex),
+		// lastReviewedIndex: get(currentIndex), // REMOVED
 		lastReviewedTimestamp: currentTimestamp,
-
-		// 🟢 Campos faltantes:
 		sessionStartTime: get(sessionStartTime),
 		studyStats: get(studyStats)
 	};
@@ -484,62 +518,97 @@ export function incrementTimesViewedFor(cardId: string) {
 	});
 }
 
-export function setUnansweredOnlyView(active: boolean) {
-	isUnansweredOnly.set(active);
+// export function setUnansweredOnlyView(active: boolean) { // REMOVED - Handled by filterUnansweredCards & showAllCards
+// 	isUnansweredOnly.set(active);
+// }
+
+// Helper to reset session scores and relevant studyStats for a sub-session (filtered views)
+function resetSubSessionStats(preserveLongestStreak: boolean = true) {
+	correctAnswers.set(0);
+	incorrectAnswers.set(0);
+	currentScore.set(0);
+	studyStats.update(stats => ({
+		...stats, // Keep existing badgesUnlocked
+		totalViewed: 0,
+		totalCorrect: 0,
+		totalIncorrect: 0,
+		correctStreak: 0,
+		longestStreak: preserveLongestStreak ? stats.longestStreak : 0,
+	}));
+	sessionStartTime.set(Date.now());
 }
 
 export function filterUnansweredCards() {
-	const collection = get(activeCollection);
-	if (!collection || !collection.flashcards) return;
+	const allCards = get(masterSessionCards);
+	const unansweredCards = allCards.filter(card => !card.answeredInSession);
 
-	// 1. Captura estado de sesión actual (lo que el usuario ha interactuado)
-	const sessionStateMap = new Map(
-		get(currentFlashcards).map(card => [card.id, { ...card }])
-	);
-
-	// 2. Reconstruye estado maestro fusionando original + sesión
-	const masterSessionCards: FlashcardStudy[] = collection.flashcards.map(original => {
-		const session = sessionStateMap.get(original.id);
-		return {
-			...original,
-			flipped: false,
-			timesViewed: session?.timesViewed ?? original.timesViewed ?? 0,
-			timesCorrect: session?.timesCorrect ?? original.timesCorrect ?? 0,
-			answeredInSession: session?.answeredInSession ?? false,
-			failedInSession: session?.failedInSession ?? false,
-			isDifficult: session?.isDifficult ?? original.isDifficult ?? false
-		};
-	});
-
-	// 3. Filtra solo las que no han sido respondidas
-	const unansweredCards = masterSessionCards.filter(card => !card.answeredInSession);
-
-	// 4. Aplica el filtro
 	if (unansweredCards.length > 0) {
-		currentFlashcards.set(unansweredCards);
+		resetSubSessionStats(true);
+		currentFlashcards.set(unansweredCards.map(fc => ({ ...fc, flipped: false })));
 		currentIndex.set(0);
 		isFilteredViewActive.set(true);
+		isUnansweredOnly.set(true);
 		sessionCompleted.set(false);
 	} else {
-		// Si no hay tarjetas sin responder, mostrar todo
-		showAllCards();
+    if (get(isFilteredViewActive)) {
+		  showAllCards();
+    }
 	}
 }
 
+// Function to filter for failed cards
+export function filterFailedCards() {
+  const allCards = get(masterSessionCards);
+  const failedCards = allCards.filter(card => card.failedInSession);
 
+  if (failedCards.length > 0) {
+		resetSubSessionStats(true);
+    currentFlashcards.set(failedCards.map(fc => ({ ...fc, flipped: false })));
+    currentIndex.set(0);
+    isFilteredViewActive.set(true);
+    isUnansweredOnly.set(false);
+    sessionCompleted.set(false);
+  } else {
+    if (get(isFilteredViewActive)) {
+      showAllCards();
+    }
+  }
+}
 
+export function showAllCards() {
+  currentFlashcards.set(get(masterSessionCards).map(fc => ({ ...fc, flipped: false })));
+  isFilteredViewActive.set(false);
+  isUnansweredOnly.set(false);
+
+  const masterCards = get(masterSessionCards);
+  const allMasterCardsAnswered = masterCards.every(fc => fc.answeredInSession);
+
+  if (allMasterCardsAnswered) {
+		sessionCompleted.set(true);
+	} else {
+    sessionCompleted.set(false);
+  }
+}
+
+// This function is for a full reset of the entire collection's study state (e.g. "Study Again" from scratch)
 export function restartSessionForCurrentCollection(collectionId: string) {
-  const saved = loadStudyProgress(collectionId);
-  if (saved) {
-    clearStudyProgress(collectionId);
+  const currentActiveCollection = get(activeCollection);
+  if (!currentActiveCollection || currentActiveCollection.id !== collectionId) {
+    console.warn('Attempted to restart session for a collection that is not active or ID mismatch.');
+    return;
   }
 
-  // Reset valores de sesión solo para esta colección
+  clearStudyProgress(collectionId);
+
   currentIndex.set(0);
   correctAnswers.set(0);
   incorrectAnswers.set(0);
   currentScore.set(0);
   sessionCompleted.set(false);
+  isFilteredViewActive.set(false);
+  isUnansweredOnly.set(false);
+  isReviewMode.set(false);
+
   studyStats.set({
     totalViewed: 0,
     totalCorrect: 0,
@@ -550,14 +619,78 @@ export function restartSessionForCurrentCollection(collectionId: string) {
     badgesUnlocked: []
   });
 
-  const flashcards = get(masterSessionCards).map(fc => ({
+  const pristineFlashcards = currentActiveCollection.flashcards.map(fc => ({
     ...fc,
     flipped: false,
     failedInSession: false,
-    answeredInSession: false
+    answeredInSession: false,
   }));
 
-  currentFlashcards.set(flashcards);
+  masterSessionCards.set(pristineFlashcards);
+  currentFlashcards.set(pristineFlashcards);
   sessionStartTime.set(Date.now());
-  currentIndex.update(n => n); // fuerza actualización visual
+  currentIndex.update(n => n);
+}
+
+
+// Reset store to initial state (typically when navigating away or changing collections fundamentally)
+export function resetStudyState() {
+  currentFlashcards.set(initialStudyState.flashcards);
+  activeCollection.set(initialStudyState.activeCollection);
+  currentIndex.set(initialStudyState.currentIndex);
+  correctAnswers.set(initialStudyState.correctAnswers);
+  incorrectAnswers.set(initialStudyState.incorrectAnswers);
+  currentScore.set(initialStudyState.currentScore);
+  sessionCompleted.set(initialStudyState.sessionCompleted);
+  timerActive.set(initialStudyState.timerActive);
+  isFilteredViewActive.set(initialStudyState.isFilteredViewActive);
+  isUnansweredOnly.set(initialStudyState.isUnansweredOnly);
+  isReviewMode.set(initialStudyState.isReviewMode); // Also reset review mode
+  masterSessionCards.set([]); // Clear master session cards
+  sessionStartTime.set(Date.now()); // Reset start time
+  studyStats.set({ // Reset study stats to default
+    totalViewed: 0,
+    totalCorrect: 0,
+    totalIncorrect: 0,
+    correctStreak: 0,
+    longestStreak: 0,
+    difficultAnswered: 0,
+    badgesUnlocked: []
+  });
+}
+
+
+export function saveProgressForCurrentCollection(): void {
+	const collection = get(activeCollection);
+	if (!collection || get(isReviewMode)) { // Do not save progress if in review mode
+    // console.log('In review mode, progress not saved.');
+    return;
+  }
+
+	// Save state of ALL cards from masterSessionCards
+	const flashcardsToSaveState = get(masterSessionCards).map(fc => ({
+		id: fc.id,
+		failedInSession: fc.failedInSession || false, // Ensure defaults if undefined
+		answeredInSession: fc.answeredInSession || false // Ensure defaults if undefined
+	}));
+
+	const currentTimestamp = Date.now();
+
+	const progressToSave: StudyProgress = {
+		collectionId: collection.id,
+		currentIndex: get(currentIndex),
+		correctAnswers: get(correctAnswers),
+		incorrectAnswers: get(incorrectAnswers),
+		currentScore: get(currentScore),
+		sessionCompleted: get(sessionCompleted),
+		flashcardsState: flashcardsToSaveState, // Now uses master list
+		lastSavedTimestamp: currentTimestamp,
+		// lastReviewedIndex: get(currentIndex), // REMOVED
+		lastReviewedTimestamp: currentTimestamp,
+		sessionStartTime: get(sessionStartTime),
+		studyStats: get(studyStats)
+	};
+
+	saveStudyProgress(progressToSave);
+	updateLastStudiedTimestamp(collection.id, currentTimestamp);
 }

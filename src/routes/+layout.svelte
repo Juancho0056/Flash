@@ -24,16 +24,66 @@
 	//     console.log('Root layout mounted on client');
 	//   }
 	// });
+
+  import type { PageData } from './$types';
+  import { goto } from '$app/navigation';
+  import { enhance } from '$app/forms';
+
+  export let data: PageData; // Received from +layout.ts
+
+  async function handleLogout() {
+    // We use a form submission with progressive enhancement for logout
+    // to ensure it works even if JS is disabled (though less likely for a SvelteKit app)
+    // Or, more simply, a fetch call. For this example, let's use fetch directly.
+    const response = await fetch('/api/auth/logout', {
+      method: 'POST',
+    });
+
+    if (response.ok) {
+      // Option 1: Force a full reload to clear all state and re-run load functions
+      // window.location.href = '/';
+      // Option 2: Use goto, which is more SvelteKit-idiomatic for SPA-like navigation
+      // After logout, event.locals.user will be null in hooks.server.ts
+      // and +layout.ts will reflect this, updating the UI.
+      await goto('/', { invalidateAll: true }); // invalidateAll ensures fresh data from load functions
+    } else {
+      alert('Logout failed. Please try again.');
+    }
+  }
 </script>
 
 <ToastsContainer />
 
 <div class="main-content flex min-h-screen flex-col">
-	<!-- <header>Header content if any</header> -->
-	<main class="flex-grow">
+  <header class="bg-gray-800 text-white p-4 shadow-md">
+    <nav class="container mx-auto flex justify-between items-center">
+      <a href="/" class="text-xl font-semibold hover:text-gray-300">Flashcard App</a>
+      <ul class="flex space-x-4">
+        <li><a href="/" class="hover:text-gray-300">Home</a></li>
+        {#if data.user}
+          <li><span class="text-gray-400">Logged in as {data.user.email}</span></li>
+          <li>
+            <button
+              on:click={handleLogout}
+              class="hover:text-gray-300 underline"
+            >
+              Logout
+            </button>
+          </li>
+        {:else}
+          <li><a href="/auth/login" class="hover:text-gray-300">Login</a></li>
+          <li><a href="/auth/register" class="hover:text-gray-300">Register</a></li>
+        {/if}
+         <li><a href="/history" class="hover:text-gray-300">History</a></li>
+      </ul>
+    </nav>
+  </header>
+	<main class="flex-grow container mx-auto p-4 md:p-8">
 		<slot />
 	</main>
-	<!-- <footer>Footer content if any</footer> -->
+	<footer class="bg-gray-100 text-center p-4 text-sm text-gray-600">
+    © {new Date().getFullYear()} Flashcard App. All rights reserved.
+  </footer>
 </div>
 
 <style>

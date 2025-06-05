@@ -10,60 +10,61 @@ export interface StudyProgress {
   currentScore: number;
   sessionCompleted: boolean;
   flashcardsState: Array<{ id: string; failedInSession?: boolean; answeredInSession?: boolean }>;
-  lastReviewedIndex: number;
+  // lastReviewedIndex: number; // Removed as it's redundant with currentIndex
   lastReviewedTimestamp: number;
   lastSavedTimestamp: number;
   sessionStartTime: number;
   studyStats: StudyStats;
 }
 
-function getStorageKey(collectionId: string): string {
-  return `studyProgress_${collectionId}`;
+const BASE_STORAGE_KEY_PREFIX = 'studyProgress_';
+
+function getProgressStorageKey(collectionId: string, userId?: string): string {
+  if (userId) {
+    return `${BASE_STORAGE_KEY_PREFIX}${collectionId}_${userId}`;
+  }
+  return `${BASE_STORAGE_KEY_PREFIX}${collectionId}`; // Fallback for guest or shared progress
 }
 
-// (Continuing in src/lib/services/progressService.ts)
-export function saveStudyProgress(progress: StudyProgress): void {
-  if (typeof window === 'undefined') return; // SSR guard
+export function saveStudyProgress(progress: StudyProgress, userId?: string): void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return; // SSR guard
 
   try {
-    const key = getStorageKey(progress.collectionId);
+    const key = getProgressStorageKey(progress.collectionId, userId);
     const progressJson = JSON.stringify(progress);
     localStorage.setItem(key, progressJson);
-    // console.log(`Progress saved for collection ${progress.collectionId}`);
+    // console.log(`Progress saved to key ${key} for collection ${progress.collectionId}, user ${userId || 'guest'}`);
   } catch (e) {
     console.error('Error saving study progress to localStorage:', e);
   }
 }
 
-// (Continuing in src/lib/services/progressService.ts)
-export function loadStudyProgress(collectionId: string): StudyProgress | null {
-  if (typeof window === 'undefined') return null; // SSR guard
+export function loadStudyProgress(collectionId: string, userId?: string): StudyProgress | null {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null; // SSR guard
 
   try {
-    const key = getStorageKey(collectionId);
+    const key = getProgressStorageKey(collectionId, userId);
     const progressJson = localStorage.getItem(key);
     if (progressJson) {
       const progress: StudyProgress = JSON.parse(progressJson);
-      // Optional: Add data validation or migration logic here if structure changes
-      // console.log(`Progress loaded for collection ${collectionId}:`, progress);
+      // console.log(`Progress loaded from key ${key} for collection ${collectionId}, user ${userId || 'guest'}:`, progress);
       return progress;
     }
   } catch (e) {
-    console.error('Error loading study progress from localStorage:', e);
+    console.error(`Error loading study progress from localStorage for key ${getProgressStorageKey(collectionId, userId)}:`, e);
     // Optionally clear corrupted data
-    // localStorage.removeItem(getStorageKey(collectionId));
+    // localStorage.removeItem(getProgressStorageKey(collectionId, userId));
   }
   return null;
 }
 
-// (Continuing in src/lib/services/progressService.ts)
-export function clearStudyProgress(collectionId: string): void {
-  if (typeof window === 'undefined') return; // SSR guard
+export function clearStudyProgress(collectionId: string, userId?: string): void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return; // SSR guard
 
   try {
-    const key = getStorageKey(collectionId);
+    const key = getProgressStorageKey(collectionId, userId);
     localStorage.removeItem(key);
-    // console.log(`Progress cleared for collection ${collectionId}`);
+    // console.log(`Progress cleared for key ${key}, collection ${collectionId}, user ${userId || 'guest'}`);
   } catch (e) {
     console.error('Error clearing study progress from localStorage:', e);
   }

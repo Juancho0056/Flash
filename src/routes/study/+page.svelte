@@ -27,16 +27,16 @@
 		shuffleFlashcards,
 		resetStudyState,
 		isFilteredViewActive, // Import new store state
-		isUnansweredOnly,
+		isUnansweredOnly, // To display (Unanswered Only) or (Failed Only)
 		filterFailedCards, // Import new actions
 		showAllCards,
 		saveProgressForCurrentCollection, // Import saveProgressForCurrentCollection
 		incrementTimesViewedForCurrentCard,
 		filterUnansweredCards,
-		setUnansweredOnlyView,
+		// setUnansweredOnlyView, // REMOVED: Store now handles this internally
 		isReviewMode,
 		incrementTimesViewedFor,
-		showOnlyFailed,
+		// showOnlyFailed, // REMOVED: Store now handles this internally
 		restartSessionForCurrentCollection
 	} from '$lib/stores/studyStore';
 	import type { CollectionWithFlashcards, FlashcardStudy } from '$lib/stores/studyStore';
@@ -44,6 +44,9 @@
 	import { toast } from '$lib/toastStore'; // Import toast
 	import { awardBadge, BadgeId } from '$lib/services/badgeService';
 	import { afterUpdate } from 'svelte'; // Import afterUpdate for reactive updates
+	import { ttsSettings, updateTTSSettings } from '$lib/stores/ttsStore'; // Import TTS store and updater
+	import { sessionStartTime } from '$lib/stores/studyStore'; // Import sessionStartTime
+	import SessionTimer from '$lib/components/SessionTimer.svelte'; // Import SessionTimer
 
 	let hasShownPerfectBadgeMessage = false;
 	let showBadgeMessage = false;
@@ -59,8 +62,22 @@
 		incrementTimesViewedForCurrentCard();
 	}
 	let showModal = false; // For session summary modal
+	let filterActiveMessage: string | null = null; // For specific filter messages
 
 	$: showModal = $sessionCompleted && !$isFilteredViewActive;
+
+	// Update filterActiveMessage when relevant store values change
+	$: {
+		if ($isFilteredViewActive && $currentFlashcards.length === 0) {
+			if ($isUnansweredOnly) {
+				filterActiveMessage = "All cards have been answered in this session.";
+			} else {
+				filterActiveMessage = "No cards marked as failed in this session.";
+			}
+		} else {
+			filterActiveMessage = null; // Clear message if cards are present or no filter active
+		}
+	}
 	sessionCompleted.subscribe((value) => {
 		console.log('🧠 sessionCompleted changed to:', value, 'at', new Date().toISOString());
 	});
@@ -90,20 +107,13 @@
 	});
 
 	async function handleFilterUnansweredCards() {
-		filterUnansweredCards();
-		setUnansweredOnlyView(true); // Set the view to unanswered only
-		if ($currentCard) {
-			await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
-		}
+		filterUnansweredCards(); // Store now sets isUnansweredOnly and isFilteredViewActive
+		// TimesViewed update for the new $currentCard (if any) will be handled by its own $: block or navigation
 	}
 
 	async function handleFilterFailedCards() {
-		filterFailedCards(); // This action might change currentFlashcards and currentIndex
-		isFilteredViewActive.set(true); // Set the filtered view active
-		if ($currentCard) {
-			// If filter results in a card being shown, update its timesViewed
-			await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
-		}
+		filterFailedCards(); // Store now sets isFilteredViewActive and clears isUnansweredOnly
+		// TimesViewed update for the new $currentCard (if any) will be handled by its own $: block or navigation
 	}
 
 	async function fetchCollections() {
@@ -261,8 +271,7 @@
 	}
 
 	async function handleShowAllCards() {
-		showAllCards(); // This action will change currentFlashcards and currentIndex
-		setUnansweredOnlyView(false);
+		showAllCards(); // Store now clears isUnansweredOnly and isFilteredViewActive
 	}
 	onMount(() => {
 		const interval = setInterval(() => {
@@ -404,10 +413,11 @@
 	}
 
 	function handleReviewOnlyFailed() {
-		showOnlyFailed.set(true);
-		isFilteredViewActive.set(true);
+		// This function is part of the modal actions.
+		// It should directly call filterFailedCards now if that's the desired behavior.
+		filterFailedCards(); // This will set isFilteredViewActive and !isUnansweredOnly
 		showModal = false;
-		// ❗️ No tocar sessionCompleted aquí
+		// sessionCompleted is not touched here by design, as reviewing failed is part of an ongoing session.
 	}
 
 	function handleFreeMode() {
@@ -417,6 +427,29 @@
 	}
 
 	$: allBadgesUnlocked = $sessionCompleted && $correctAnswers > 0 && $incorrectAnswers === 0;
+
+	// Reactive variable for the autoPlay checkbox
+  let autoPlayTTS: boolean;
+  ttsSettings.subscribe(settings => {
+    autoPlayTTS = settings.autoPlay;
+  });
+
+  function handleAutoPlayChange(event: Event) {
+    const target = event.target as HTMLInputElement;
+    updateTTSSettings({ autoPlay: target.checked });
+  }
+
+  // Determine card language
+  // TODO: This should ideally come from collection settings or individual card metadata
+  // For now, we'll use a placeholder or the default from ttsSettings / Card.svelte.
+  // If activeCollection had a 'lang' property, it would be:
+  // $: cardLanguage = $activeCollection?.lang || $ttsSettings.defaultLang;
+  // Using a fixed example for now, or relying on Card's default / ttsSettings.defaultLang
+  let cardLanguage: string | undefined = undefined; // Let Card.svelte use its default or ttsSettings.defaultLang
+  // $: cardLanguage = $activeCollection?.language; // Example if collection had a language field
+  // $: if ($activeCollection && $activeCollection.lang) cardLanguage = $activeCollection.lang;
+
+
 </script>
 
 <svelte:head>
@@ -487,6 +520,19 @@
 	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
 		<div class="study-area rounded-lg bg-white p-6 shadow-xl md:p-8">
 			<SessionStats />
+      <div class="my-2 flex items-center justify-between">
+        {#if $activeCollection && $currentCard} <SessionTimer startTime={$sessionStartTime} /> {/if}
+        <div class="flex items-center">
+          <label for="autoPlayToggle" class="mr-2 text-sm text-gray-700">Auto-speak cards:</label>
+          <input
+            type="checkbox"
+            id="autoPlayToggle"
+            bind:checked={autoPlayTTS}
+            on:change={handleAutoPlayChange}
+            class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+          />
+        </div>
+      </div>
 			{#if allBadgesUnlocked}
 				<p class="mt-4 rounded-md bg-green-100 p-2 text-sm text-green-700">
 					🏆 Has completado esta colección perfectamente y ya obtuviste todos los logros
@@ -560,6 +606,7 @@
 						pronunciation={$currentCard.pronunciation}
 						example={$currentCard.example}
 						flipped={$currentCard.flipped || false}
+            cardLang={cardLanguage}
 						on:toggle={(e) => flipCard($currentCard!.id, e.detail.flipped)}
 					/>
 				</div>
@@ -591,11 +638,23 @@
 					</button>
 				</div>
 			{:else}
-				<p class="py-10 text-center text-red-500">
-					Error: Current card data is not available or collection is empty.
+				<p class="py-10 text-center text-yellow-600">
+					{filterActiveMessage}
 				</p>
-			{/if}
+			{:else if !$currentCard && $totalFlashcards > 0}
+				<!-- This case might occur if currentIndex is out of bounds, though less likely with current logic -->
+				<p class="py-10 text-center text-red-500">
+					Error: Card data seems to be in an inconsistent state. Try reloading or selecting another collection.
+				</p>
+			{:else if !$currentCard}
+        <!-- Generic message if no card and no specific filter message (e.g. initial load before selection) -->
+				<p class="py-10 text-center text-gray-500">
+					Select a collection to start studying or manage your cards.
+				</p>
+      {/if}
 
+
+			{#if $currentCard} <!-- Only show score and navigation if there's a card -->
 			<div class="my-4 text-center">
 				<p class="mb-1 text-xl font-bold text-indigo-600">Score: {$currentScore}</p>
 				<p class="text-md">{$correctAnswers} Correct, {$incorrectAnswers} Incorrect</p>

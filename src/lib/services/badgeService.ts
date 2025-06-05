@@ -44,6 +44,27 @@ export const allBadges: Badge[] = [
     icon: '🏆',
     unlocked: false,
   },
+  {
+    id: BadgeId.STREAK_5,
+    name: 'Streak Novice',
+    description: 'Answered 5 cards correctly in a row.',
+    icon: '🔥',
+    unlocked: false,
+  },
+  {
+    id: BadgeId.STREAK_10,
+    name: 'Streak Pro',
+    description: 'Answered 10 cards correctly in a row.',
+    icon: '🔥🔥',
+    unlocked: false,
+  },
+  {
+    id: BadgeId.CORRECT_50,
+    name: 'Knowledge Builder',
+    description: 'Answered 50 cards correctly in total.',
+    icon: '📚',
+    unlocked: false,
+  },
 ];
 
 // (Continuing in src/lib/services/badgeService.ts)
@@ -67,11 +88,16 @@ function loadBadges(): Badge[] {
     }
   }
   // Merge with default badge definitions
-  return allBadges.map(badge => ({
-    ...badge,
-    unlocked: storedBadgeStates[badge.id]?.unlocked || false,
-    unlockedTimestamp: storedBadgeStates[badge.id]?.unlockedTimestamp,
-  }));
+  // Ensure all badges from allBadges are represented, even if not in storage yet
+  const loadedBadges = allBadges.map(defaultBadge => {
+    const storedState = storedBadgeStates[defaultBadge.id];
+    return {
+      ...defaultBadge,
+      unlocked: storedState?.unlocked || false,
+      unlockedTimestamp: storedState?.unlockedTimestamp,
+    };
+  });
+  return loadedBadges;
 }
 
 function saveBadges(badgesToSave: Badge[]) {
@@ -137,21 +163,16 @@ if (typeof window !== 'undefined') {
 }
 
 export function checkAndAwardBadgesFromStats(stats: StudyStats): void {
-  // FIRST_SESSION_COMPLETED
-  if (stats.totalViewed >= 1) {
-    awardBadge(BadgeId.FIRST_SESSION_COMPLETED);
-  }
+  // This function is currently not awarding badges directly, as specific trigger points
+  // in studyStore.ts (e.g., after a card is answered, or a session ends)
+  // provide more precise contexts for awarding most badges.
 
-  // TEN_CORRECT_IN_SESSION
-  if (stats.totalCorrect >= 10) {
-    awardBadge(BadgeId.TEN_CORRECT_IN_SESSION);
-  }
-
-  // COLLECTION_MASTERED (opcional, debe comprobarse en contexto de sesión por colección)
-  if (
-    stats.totalViewed > 0 &&
-    stats.totalCorrect === stats.totalViewed
-  ) {
-    awardBadge(BadgeId.COLLECTION_MASTERED);
-  }
+  // If there were badges that could ONLY be determined by looking at a completed
+  // session's stats in isolation (and not during the session itself),
+  // this function could be a place for them.
+  // For now, it remains empty to avoid duplicate or conflicting badge awards.
+  // Example:
+  // if (stats.someSpecificCondition) {
+  //   awardBadge(BadgeId.SOME_OTHER_BADGE);
+  // }
 }
