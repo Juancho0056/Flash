@@ -1,7 +1,7 @@
 import { studyStats } from '$lib/stores/studyStats';
 import { writable, derived, get } from 'svelte/store';
 import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
-import { awardBadge, BadgeId, allBadges as allBadgesDefinitions } from '$lib/services/badgeService'; // Import BadgeId and awardBadge
+import { awardBadge, BadgeId } from '$lib/services/badgeService'; // Import BadgeId and awardBadge
 import { globalUserStats, incrementTotalCorrectAnswersAllTime } from '$lib/stores/globalUserStats'; // Import global stats
 import { loadStudyProgress, saveStudyProgress, type StudyProgress } from '$lib/services/progressService';
 import { updateLastStudiedTimestamp } from '$lib/services/collectionMetaService';
@@ -427,7 +427,6 @@ export function saveProgressForCurrentCollection(): void {
 	const collection = get(activeCollection);
 	if (!collection) return;
 
-	const collection = get(activeCollection);
 	if (!collection || get(isReviewMode)) { // Do not save progress if in review mode
     // console.log('In review mode, progress not saved.');
     return;
