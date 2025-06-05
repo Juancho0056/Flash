@@ -255,7 +255,7 @@ export async function markAnswer(isCorrect: boolean) {
 	currentFlashcards.update(cards => {
 		const idx = get(currentIndex);
 		const card = cards[idx];
-		if (!card || card.answeredInSession) return cards;
+		if (!card) return cards; // Allow update if card was answered but failed
 
 		const updated = [...cards];
 		const cardBeingUpdated = cards[idx];
@@ -275,7 +275,7 @@ export async function markAnswer(isCorrect: boolean) {
 	// 🟦 Actualizar masterSessionCards
 	masterSessionCards.update(cards => {
 		const idx = cards.findIndex(c => c.id === current.id);
-		if (idx === -1 || cards[idx].answeredInSession) return cards;
+		if (idx === -1) return cards; // Allow update if card was answered but failed
 
 		const updated = [...cards];
 		const cardBeingUpdated = cards[idx];
