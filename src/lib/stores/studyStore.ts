@@ -1,5 +1,6 @@
 import { studyStats } from '$lib/stores/studyStats';
 import { writable, derived, get } from 'svelte/store';
+import { page } from '$app/stores';
 import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
 import { awardBadge, BadgeId } from '$lib/services/badgeService'; // Import BadgeId and awardBadge
 import { globalUserStats, incrementTotalCorrectAnswersAllTime } from '$lib/stores/globalUserStats'; // Import global stats
@@ -51,7 +52,11 @@ export const masterSessionCards = writable<FlashcardStudy[]>([]);
 export const sessionStartTime = writable<number>(Date.now());
 // Constants
 const POINTS_PER_CORRECT_ANSWER = 10;
-const reviewModeStorageKey = 'reviewModeByCollection';
+const BASE_REVIEW_MODE_STORAGE_KEY = 'reviewModeByCollection';
+
+function getReviewModeStorageKey(userId?: string): string {
+	return userId ? `${BASE_REVIEW_MODE_STORAGE_KEY}_${userId}` : BASE_REVIEW_MODE_STORAGE_KEY;
+}
 // Derived store for current card based on currentIndex and flashcards
 export const currentCard = derived(
   [currentFlashcards, currentIndex],
@@ -81,15 +86,18 @@ export const totalFlashcards = derived(currentFlashcards, ($currentFlashcards) =
 });
 
 export function loadReviewModeFor(collectionId: string) {
-	const map = JSON.parse(sessionStorage.getItem(reviewModeStorageKey) || '{}');
+	const userId = get(page).data.user?.id;
+	const map = JSON.parse(sessionStorage.getItem(getReviewModeStorageKey(userId)) || '{}');
 	const active = !!map[collectionId];
 	isReviewMode.set(active);
 }
 
 export function saveReviewModeFor(collectionId: string, value: boolean) {
-	const map = JSON.parse(sessionStorage.getItem(reviewModeStorageKey) || '{}');
+	const userId = get(page).data.user?.id;
+	const storageKey = getReviewModeStorageKey(userId);
+	const map = JSON.parse(sessionStorage.getItem(storageKey) || '{}');
 	map[collectionId] = value;
-	sessionStorage.setItem(reviewModeStorageKey, JSON.stringify(map));
+	sessionStorage.setItem(storageKey, JSON.stringify(map));
 	isReviewMode.set(value);
 }
 // Function to load a new collection for study
@@ -98,9 +106,9 @@ export function loadCollectionForStudy(collectionData: CollectionWithFlashcards 
     resetStudyState();
     return;
   }
-
-  loadReviewModeFor(collectionData.id);
-  const savedProgress = loadStudyProgress(collectionData.id);
+  const userId = get(page).data.user?.id;
+  loadReviewModeFor(collectionData.id); // This will internally use userId
+  const savedProgress = loadStudyProgress(collectionData.id, userId);
   const review = get(isReviewMode); // Check review mode status BEFORE loading progress
 
   activeCollection.set(collectionData);
@@ -296,8 +304,10 @@ export function markAnswer(isCorrect: boolean) {
 		sessionCompleted.set(true); // Set session as completed
 		awardBadge(BadgeId.FIRST_SESSION_COMPLETED); // Award first session completion badge
 
-		// Check for collection mastery
-		if (get(incorrectAnswers) === 0 && get(correctAnswers) === get(currentFlashcards).length) {
+		// Check for collection mastery (only if this is a full, non-review session view)
+		const isFullSessionView = !get(isFilteredViewActive) && !get(isReviewMode);
+		// Also, ensure we are comparing against masterSessionCards.length for the condition
+		if (isFullSessionView && get(incorrectAnswers) === 0 && get(correctAnswers) === get(masterSessionCards).length) {
 			awardBadge(BadgeId.COLLECTION_MASTERED);
 			const collection = get(activeCollection);
 			if (collection) {
@@ -336,6 +346,7 @@ function _saveCompletedSessionToHistory() {
 
 	// For 'completed' or 'mastered' sessions, totalCards studied is the length of the set just completed.
 	const cardsInThisSpecificSession = get(currentFlashcards).length;
+	const userId = get(page).data.user?.id;
 
 	saveSessionToHistory({ // This calls the imported service function
 		collectionId: collection.id,
@@ -351,8 +362,9 @@ function _saveCompletedSessionToHistory() {
 		streak: get(studyStats).correctStreak,
 		longestStreak: get(studyStats).longestStreak,
 		sessionType: sessionTypeVal,
-		status: statusVal
-	});
+		status: statusVal,
+		cardsAttemptedInView: cardsInThisSpecificSession
+	}, userId);
 }
 
 
@@ -509,8 +521,8 @@ export function restartSessionForCurrentCollection(collectionId: string) {
     console.warn('Attempted to restart session for a collection that is not active or ID mismatch.');
     return;
   }
-
-  clearStudyProgress(collectionId);
+  const userId = get(page).data.user?.id;
+  clearStudyProgress(collectionId, userId);
 
   currentIndex.set(0);
   correctAnswers.set(0);
@@ -578,7 +590,7 @@ export function saveProgressForCurrentCollection(): void {
     // console.log('In review mode, progress not saved.');
     return;
   }
-
+  const userId = get(page).data.user?.id;
 	// Save state of ALL cards from masterSessionCards
 	const flashcardsToSaveState = get(masterSessionCards).map(fc => ({
 		id: fc.id,
@@ -603,6 +615,65 @@ export function saveProgressForCurrentCollection(): void {
 		studyStats: get(studyStats)
 	};
 
-	saveStudyProgress(progressToSave);
-	updateLastStudiedTimestamp(collection.id, currentTimestamp);
+	saveStudyProgress(progressToSave, userId);
+	updateLastStudiedTimestamp(collection.id, currentTimestamp, userId);
+}
+
+export function triggerIncompleteSessionSave(saveStatus: 'incomplete' | 'abandoned') {
+	const collection = get(activeCollection);
+	const studyStatsSnapshot = get(studyStats);
+	const sessionStartTimeVal = get(sessionStartTime);
+	const userId = get(page).data.user?.id; // Get current user ID
+
+	if (!collection || !sessionStartTimeVal) {
+		console.log('Session not active or not started, not saving.');
+		return;
+	}
+
+	if (get(sessionCompleted)) {
+		console.log('Session already completed, not saving as incomplete/abandoned.');
+		return;
+	}
+
+	const duration = Date.now() - sessionStartTimeVal;
+	// Only save if some meaningful interaction: e.g. viewed at least one card OR spent some minimum time
+	const minDurationMs = 3000; // 3 seconds
+	const cardsViewedInSession = studyStatsSnapshot.totalViewed; // totalViewed in current session/sub-session
+
+	if (cardsViewedInSession === 0 && duration < minDurationMs) {
+		console.log('Minimal interaction, not saving session state.');
+		return;
+	}
+
+	const sessionTypeVal: 'full' | 'failed_only' | 'unanswered_only' | 'review' = get(isReviewMode)
+		? 'review'
+		: get(isFilteredViewActive)
+		? get(isUnansweredOnly)
+			? 'unanswered_only'
+			: 'failed_only'
+		: 'full';
+
+	// Determine cardsAttemptedInView for incomplete sessions
+	// This should be the number of unique cards in the current view that were answered
+	const attemptedCardsInCurrentView = get(currentFlashcards).filter(fc => fc.answeredInSession).length;
+
+	saveSessionToHistory({
+		collectionId: collection.id,
+		collectionName: collection.name,
+		timestamp: Date.now(),
+		sessionStartTime: sessionStartTimeVal,
+		durationMs: duration,
+		totalCards: get(currentFlashcards).length, // Cards in the current view
+		originalCollectionSize: get(masterSessionCards).length,
+		correct: get(correctAnswers),
+		incorrect: get(incorrectAnswers),
+		score: get(currentScore),
+		streak: studyStatsSnapshot.correctStreak,
+		longestStreak: studyStatsSnapshot.longestStreak,
+		sessionType: sessionTypeVal,
+		status: saveStatus,
+		cardsAttemptedInView: attemptedCardsInCurrentView
+	}, userId);
+
+	console.log(`Session saved with status: ${saveStatus}`);
 }

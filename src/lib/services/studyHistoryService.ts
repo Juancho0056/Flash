@@ -11,9 +11,10 @@ interface StudySessionRecord {
 	durationMs: number;
 	// New optional fields for more detailed session tracking
 	sessionType?: 'full' | 'failed_only' | 'unanswered_only' | 'review';
-	status?: 'completed' | 'mastered' | 'incomplete';
+	status?: 'completed' | 'mastered' | 'incomplete' | 'abandoned';
 	originalCollectionSize?: number;
 	sessionStartTime?: number;
+	cardsAttemptedInView?: number;
 }
 
 const BASE_STORAGE_KEY = 'studyHistory';
