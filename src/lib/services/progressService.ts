@@ -10,7 +10,7 @@ export interface StudyProgress {
   currentScore: number;
   sessionCompleted: boolean;
   flashcardsState: Array<{ id: string; failedInSession?: boolean; answeredInSession?: boolean }>;
-  lastReviewedIndex: number;
+  // lastReviewedIndex: number; // Removed as it's redundant with currentIndex
   lastReviewedTimestamp: number;
   lastSavedTimestamp: number;
   sessionStartTime: number;
