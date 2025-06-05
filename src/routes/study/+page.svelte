@@ -37,6 +37,7 @@
 		isReviewMode,
 		incrementTimesViewedFor,
 		// showOnlyFailed, // REMOVED: Store now handles this internally
+		triggerIncompleteSessionSave,
 		restartSessionForCurrentCollection
 	} from '$lib/stores/studyStore';
 	import type { CollectionWithFlashcards, FlashcardStudy } from '$lib/stores/studyStore';
@@ -304,11 +305,37 @@
 	});
 
 	onDestroy(() => {
-		saveProgressForCurrentCollection(); // Save progress before resetting state
+		// Check if a session is active and not completed before trying to save as 'incomplete'
+		if (get(activeCollection) && !get(sessionCompleted)) {
+			triggerIncompleteSessionSave('incomplete');
+		}
+
+		saveProgressForCurrentCollection(); // Save resumable progress
 		resetStudyState(); // Clear study session state from memory
-		if (feedbackTimeout) {
+		if (feedbackTimeout) { // feedbackTimeout is a local variable in this component
 			clearTimeout(feedbackTimeout);
 		}
+	});
+
+	onMount(() => {
+		const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+			if (get(activeCollection) && !get(sessionCompleted)) {
+				// Call triggerIncompleteSessionSave for 'abandoned' status
+				triggerIncompleteSessionSave('abandoned');
+
+				// Standard practice for beforeunload: some browsers require returnValue to be set.
+				// Modern browsers often ignore custom messages for security reasons.
+				// Setting it doesn't hurt.
+				// event.preventDefault(); // Optional: some browsers might need this
+				// event.returnValue = ''; // Optional: for older browser compatibility
+			}
+		};
+
+		window.addEventListener('beforeunload', handleBeforeUnload);
+
+		return () => {
+			window.removeEventListener('beforeunload', handleBeforeUnload);
+		};
 	});
 
 	async function handleStudyAgain() {
