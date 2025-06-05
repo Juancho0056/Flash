@@ -41,6 +41,7 @@ model Flashcard {
   timesViewed    Int         @default(0)
   timesCorrect   Int         @default(0)
   isDifficult    Boolean     @default(false)
+  sm2Progress    UserFlashcardSM2[] // Relation to SM2 data
 }
 
 model User {
@@ -51,6 +52,110 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Define relationships later if needed, e.g., to StudyHistory, Collections
-  // studyHistory StudySessionRecord[]
+  studyHistory StudySessionRecord[] // Add relation to StudySessionRecord
+  studyProgress UserStudyProgress[]  // Add relation to UserStudyProgress
+  sm2Data      UserFlashcardSM2[]   // Relation to SM2 data
   // collections  Collection[]
+}
+
+enum SessionType {
+  FULL
+  FAILED_ONLY
+  UNANSWERED_ONLY
+  REVIEW
+}
+
+enum SessionStatus {
+  COMPLETED
+  MASTERED
+  INCOMPLETE
+  ABANDONED
+}
+
+model StudySessionRecord {
+  id                      String    @id @default(cuid())
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Denormalized collection info for historical data integrity
+  originalCollectionId    String    // The ID of the collection when this session was recorded
+  collectionName          String    // Name of the collection at the time of session
+  originalCollectionSize  Int       // Total cards in the collection at the time of session
+
+  sessionStartTime        DateTime
+  sessionEndTime          DateTime  @default(now())
+  durationMs              Int       // Calculated: sessionEndTime - sessionStartTime
+
+  cardsInView             Int       // Number of cards in the specific segment studied (e.g., full deck, or just failed cards)
+  cardsAttempted          Int?      // Number of cards actually answered/interacted with in this segment
+  correctAnswers          Int
+  incorrectAnswers        Int
+  score                   Int
+
+  finalStreak             Int       // Correct streak at the end of this session segment
+  longestStreakInSession  Int       // Longest correct streak achieved during this specific segment
+
+  sessionType             SessionType // Using the Enum
+  status                  SessionStatus // Using the Enum
+
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([originalCollectionId])
+}
+
+model UserFlashcardSM2 {
+  id                      String    @id @default(cuid())
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  flashcardId             String
+  flashcard               Flashcard @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
+
+  easinessFactor          Float
+  repetitions             Int
+  intervalDays            Int       // Renamed from 'interval' to be clear about unit
+  dueDate                 DateTime
+  lastReviewed            DateTime
+
+  // Denormalized context data, consistent with what was stored in SM2Data
+  originalCollectionId    String
+  collectionName          String?
+
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  UNIQUE                   (userId, flashcardId) // Each user has one SM2 record per flashcard
+  @@index([userId])
+  @@index([flashcardId])
+  @@index([userId, dueDate]) // For efficiently querying due cards for a user
+}
+
+model UserStudyProgress {
+  id                      String    @id @default(cuid())
+  userId                  String
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  originalCollectionId    String    // ID of the collection this progress pertains to
+  // collectionName          String?   // Optional: denormalized name for context
+
+  currentIndex            Int
+  correctAnswers          Int
+  incorrectAnswers        Int
+  currentScore            Int
+  sessionCompleted        Boolean   // Has the main list of cards been completed at least once
+
+  // Store complex states as JSON
+  flashcardsState         Json      // Array<{ id: string; failedInSession?: boolean; answeredInSession?: boolean }>
+  studyStats              Json      // From $lib/stores/studyStats interface (totalViewed, streaks, etc.)
+
+  sessionStartTime        DateTime
+  lastSavedTimestamp      DateTime  @default(now())
+
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  UNIQUE                   (userId, originalCollectionId) // Each user has one progress record per collection
+  @@index([userId])
+  @@index([originalCollectionId])
 }

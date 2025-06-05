@@ -1,71 +1,129 @@
 // src/lib/services/progressService.ts
 
-import type { StudyStats } from "$lib/stores/studyStats";
+import type { StudyStats } from '$lib/stores/studyStats';
 
-export interface StudyProgress {
-  collectionId: string;
+// Data payload sent to the server for saving progress
+export interface UserProgressPayload {
+  collectionId: string; // This will be mapped to originalCollectionId by the API
   currentIndex: number;
   correctAnswers: number;
   incorrectAnswers: number;
   currentScore: number;
   sessionCompleted: boolean;
   flashcardsState: Array<{ id: string; failedInSession?: boolean; answeredInSession?: boolean }>;
-  // lastReviewedIndex: number; // Removed as it's redundant with currentIndex
-  lastReviewedTimestamp: number;
-  lastSavedTimestamp: number;
-  sessionStartTime: number;
+  sessionStartTime: number; // JS Timestamp (milliseconds since epoch)
   studyStats: StudyStats;
+  // lastReviewedTimestamp is effectively replaced by lastSavedTimestamp on the server
+  // lastSavedTimestamp is also managed by the server (e.g., @updatedAt)
 }
 
-const BASE_STORAGE_KEY_PREFIX = 'studyProgress_';
-
-function getProgressStorageKey(collectionId: string, userId?: string): string {
-  if (userId) {
-    return `${BASE_STORAGE_KEY_PREFIX}${collectionId}_${userId}`;
-  }
-  return `${BASE_STORAGE_KEY_PREFIX}${collectionId}`; // Fallback for guest or shared progress
+// Data structure received from the server (matches Prisma model UserStudyProgress + potential relations)
+export interface UserStudyProgressRecord extends UserProgressPayload {
+  id: string;                 // Server-generated ID
+  userId: string;             // Server-assigned or validated user ID
+  lastSavedTimestamp: string; // ISO DateTime string from server (represents last update time)
+  createdAt: string;          // ISO DateTime string
+  updatedAt: string;          // ISO DateTime string
+  // Note: sessionStartTime will be a string if it's a DateTime in Prisma, needs conversion
 }
 
-export function saveStudyProgress(progress: StudyProgress, userId?: string): void {
-  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return; // SSR guard
-
-  try {
-    const key = getProgressStorageKey(progress.collectionId, userId);
-    const progressJson = JSON.stringify(progress);
-    localStorage.setItem(key, progressJson);
-    // console.log(`Progress saved to key ${key} for collection ${progress.collectionId}, user ${userId || 'guest'}`);
-  } catch (e) {
-    console.error('Error saving study progress to localStorage:', e);
-  }
-}
-
-export function loadStudyProgress(collectionId: string, userId?: string): StudyProgress | null {
-  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null; // SSR guard
-
-  try {
-    const key = getProgressStorageKey(collectionId, userId);
-    const progressJson = localStorage.getItem(key);
-    if (progressJson) {
-      const progress: StudyProgress = JSON.parse(progressJson);
-      // console.log(`Progress loaded from key ${key} for collection ${collectionId}, user ${userId || 'guest'}:`, progress);
-      return progress;
+/**
+ * Saves study progress to the server.
+ * Assumes userId is handled by the server via session/authentication context.
+ * @param progress The study progress data to save.
+ * @returns True if successful, false otherwise.
+ */
+export async function saveStudyProgress(progress: UserProgressPayload): Promise<boolean> {
+    if (typeof window === 'undefined') { // Should not be called in SSR context directly
+        console.warn('saveStudyProgress called in non-browser context.');
+        return false;
     }
-  } catch (e) {
-    console.error(`Error loading study progress from localStorage for key ${getProgressStorageKey(collectionId, userId)}:`, e);
-    // Optionally clear corrupted data
-    // localStorage.removeItem(getProgressStorageKey(collectionId, userId));
-  }
-  return null;
+
+    try {
+        const response = await fetch('/api/user-progress', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(progress),
+        });
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error('Failed to save study progress to server:', response.status, errorBody);
+            return false;
+        }
+        // console.log('Study progress saved successfully.');
+        return true;
+    } catch (error) {
+        console.error('Error saving study progress to server:', error);
+        return false;
+    }
 }
 
-export function clearStudyProgress(collectionId: string, userId?: string): void {
-  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return; // SSR guard
+/**
+ * Loads study progress for a specific collection from the server.
+ * Assumes userId is handled by the server via session/authentication context.
+ * @param collectionId The ID of the collection for which to load progress.
+ * @returns The study progress record, or null if not found or an error occurs.
+ */
+export async function loadStudyProgress(collectionId: string): Promise<UserStudyProgressRecord | null> {
+    if (typeof window === 'undefined') {
+        console.warn('loadStudyProgress called in non-browser context.');
+        return null;
+    }
 
-  try {
-    const key = getProgressStorageKey(collectionId, userId);
-    localStorage.removeItem(key);
-    // console.log(`Progress cleared for key ${key}, collection ${collectionId}, user ${userId || 'guest'}`);
-  } catch (e) {
-    console.error('Error clearing study progress from localStorage:', e);
-  }
+    try {
+        const response = await fetch(`/api/user-progress?originalCollectionId=${collectionId}`);
+
+        if (response.status === 404) {
+            // console.log(`No study progress found on server for collection ${collectionId}.`);
+            return null; // Common case: no progress saved yet
+        }
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error('Failed to load study progress from server:', response.status, errorBody);
+            return null;
+        }
+
+        const record: UserStudyProgressRecord = await response.json();
+
+        // Ensure sessionStartTime is a number (JS timestamp)
+        // Prisma DateTime fields are often serialized as ISO strings
+        if (record && typeof record.sessionStartTime === 'string') {
+            record.sessionStartTime = new Date(record.sessionStartTime).getTime();
+        }
+
+        // console.log(`Study progress loaded for collection ${collectionId}:`, record);
+        return record;
+    } catch (error) {
+        console.error('Error loading study progress from server:', error);
+        return null;
+    }
+}
+
+/**
+ * Clears study progress for a specific collection on the server.
+ * Assumes userId is handled by the server via session/authentication context.
+ * @param collectionId The ID of the collection for which to clear progress.
+ * @returns True if successful, false otherwise.
+ */
+export async function clearStudyProgress(collectionId: string): Promise<boolean> {
+    if (typeof window === 'undefined') {
+        console.warn('clearStudyProgress called in non-browser context.');
+        return false;
+    }
+
+    try {
+        const response = await fetch(`/api/user-progress?originalCollectionId=${collectionId}`, {
+            method: 'DELETE',
+        });
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error('Failed to clear study progress on server:', response.status, errorBody);
+            return false;
+        }
+        // console.log(`Study progress cleared for collection ${collectionId} on server.`);
+        return true;
+    } catch (error) {
+        console.error('Error clearing study progress on server:', error);
+        return false;
+    }
 }

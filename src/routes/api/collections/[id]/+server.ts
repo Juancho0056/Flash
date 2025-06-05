@@ -5,7 +5,8 @@ import type { Prisma } from '@prisma/client';
 
 // Define el tipo de cuerpo esperado para PUT
 interface UpdateCollectionBody {
-  name: string;
+  name?: string; // Make name optional
+  cefrLevel?: string | null; // Allow string for level, or null to clear it
 }
 
 // GET /api/collections/:id
@@ -50,18 +51,36 @@ export const PUT: RequestHandler = async ({ request, params }) => {
     throw error(400, 'Invalid JSON payload');
   }
 
-  const { name } = body;
-  if (!name) {
-    throw error(400, 'Collection name is required');
+  const { name, cefrLevel } = body;
+
+  if (name === undefined && cefrLevel === undefined) {
+    throw error(400, 'At least one field (name or cefrLevel) must be provided for update.');
+  }
+
+  const updateData: Prisma.CollectionUpdateInput = {};
+
+  if (name !== undefined) {
+    if (typeof name === 'string' && name.trim() === '') {
+        throw error(400, 'Collection name cannot be empty if provided.');
+    }
+    updateData.name = name.trim();
+  }
+
+  if (cefrLevel !== undefined) {
+    if (cefrLevel === null || cefrLevel === '') {
+      updateData.cefrLevel = null; // Clear the CEFR level
+    } else {
+      // Prisma client expects string matching enum member for enum types
+      updateData.cefrLevel = cefrLevel;
+    }
   }
 
   try {
-    const updated = await prisma.collection.update({
+    const updatedCollection = await prisma.collection.update({
       where: { id: collectionId },
-      data: { name }
+      data: updateData,
     });
-
-    return json(updated);
+    return json(updatedCollection);
   } catch (e) {
     const err = e as Prisma.PrismaClientKnownRequestError;
 

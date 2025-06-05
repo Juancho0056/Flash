@@ -8,7 +8,7 @@ import { loadStudyProgress, saveStudyProgress, type StudyProgress } from '$lib/s
 import { updateLastStudiedTimestamp } from '$lib/services/collectionMetaService';
 import { saveSessionToHistory } from '$lib/services/studyHistoryService';
 import { clearStudyProgress } from '$lib/services/progressService';
-import { updateSM2Data, getSM2Data } from '$lib/services/sm2Service';
+import { updateSM2Data, getUserFlashcardSM2Record, type UpdateSM2Payload, type UserFlashcardSM2Record } from '$lib/services/sm2Service';
 
 // Constants for automatic difficult card detection
 const INCORRECT_THRESHOLD_SESSION = 3; // Times incorrect in current session to mark as difficult
@@ -107,14 +107,15 @@ export function saveReviewModeFor(collectionId: string, value: boolean) {
 	isReviewMode.set(value);
 }
 // Function to load a new collection for study
-export function loadCollectionForStudy(collectionData: CollectionWithFlashcards | null) {
+export async function loadCollectionForStudy(collectionData: CollectionWithFlashcards | null) {
   if (!collectionData || !collectionData.flashcards) {
     resetStudyState();
     return;
   }
-  const userId = get(page).data.user?.id;
-  loadReviewModeFor(collectionData.id); // This will internally use userId
-  const savedProgress = loadStudyProgress(collectionData.id, userId);
+  // userId is not passed to loadReviewModeFor as it gets it from page store internally.
+  loadReviewModeFor(collectionData.id);
+  // userId is no longer passed to loadStudyProgress as API infers user from session.
+  const savedProgress = await loadStudyProgress(collectionData.id);
   const review = get(isReviewMode); // Check review mode status BEFORE loading progress
 
   activeCollection.set(collectionData);
@@ -220,7 +221,7 @@ export function flipCard(cardId: string, flippedState: boolean) {
 
 
 // Function to mark an answer
-export function markAnswer(isCorrect: boolean) {
+export async function markAnswer(isCorrect: boolean) {
 	const current = get(currentCard);
 
 	// ✅ Protección inmediata
@@ -345,18 +346,29 @@ export function markAnswer(isCorrect: boolean) {
 	const collectionName = get(activeCollection)?.name; // Get collection name
 	const quality = isCorrect ? 5 : 2; // Simplified mapping for SM-2
 
-	if (cardId && collectionId && !get(isReviewMode)) { // Added collectionId check. Only update SM-2 stats if not in review mode
+	if (cardId && collectionId && !get(isReviewMode)) {
+		const sm2Payload: UpdateSM2Payload = {
+			flashcardId: cardId,
+			collectionId: collectionId,
+			collectionName: collectionName,
+			quality: quality
+		};
 		try {
-			updateSM2Data(cardId, collectionId, collectionName, quality, userId); // Pass collectionId and collectionName
-		} catch (e) {
-			console.error('Failed to update SM-2 data:', e);
+			// const updatedSm2Record =
+			await updateSM2Data(sm2Payload);
+			// if (updatedSm2Record) {
+			//    console.log('SM2 data updated via API:', updatedSm2Record);
+			// }
+		} catch (e) { // Should be caught by updateSM2Data itself, but for safety
+			console.error('Failed to update SM-2 data (store level):', e);
 		}
 	}
 
 	// Automatic Difficulty Detection Logic
 	const currentCardDetails = get(currentCard); // Get the latest state of the current card
-	if (currentCardDetails && !currentCardDetails.isDifficult) { // Check if not already marked difficult
-		const sm2Data = getSM2Data(currentCardDetails.id, userId); // Fetch its latest SM-2 data
+	// userId is not passed to getUserFlashcardSM2Record as API infers user
+	if (currentCardDetails && !currentCardDetails.isDifficult) {
+		const sm2Record: UserFlashcardSM2Record | null = await getUserFlashcardSM2Record(currentCardDetails.id);
 		let autoMarkDifficult = false;
 
 		if (currentCardDetails.incorrectCountInSession && currentCardDetails.incorrectCountInSession >= INCORRECT_THRESHOLD_SESSION) {
@@ -364,9 +376,9 @@ export function markAnswer(isCorrect: boolean) {
 			console.log(`Card ${currentCardDetails.id} flagged difficult due to session incorrect count: ${currentCardDetails.incorrectCountInSession}.`);
 		}
 
-		if (sm2Data && sm2Data.easinessFactor < EF_DIFFICULTY_THRESHOLD) {
+		if (sm2Record && sm2Record.easinessFactor < EF_DIFFICULTY_THRESHOLD) {
 			autoMarkDifficult = true;
-			console.log(`Card ${currentCardDetails.id} flagged difficult due to low EF: ${sm2Data.easinessFactor}.`);
+			console.log(`Card ${currentCardDetails.id} flagged difficult due to low EF: ${sm2Record.easinessFactor}.`);
 		}
 
 		if (autoMarkDifficult) {
@@ -417,7 +429,7 @@ async function _persistDifficultStatus(cardId: string, makeDifficult: boolean): 
 }
 
 // Internal function to save a completed session (full or filtered) to history
-function _saveCompletedSessionToHistory() {
+async function _saveCompletedSessionToHistory() {
 	const collection = get(activeCollection);
 	if (!collection) return;
 
@@ -438,27 +450,35 @@ function _saveCompletedSessionToHistory() {
 		statusVal = 'mastered';
 	}
 
-	// For 'completed' or 'mastered' sessions, totalCards studied is the length of the set just completed.
-	const cardsInThisSpecificSession = get(currentFlashcards).length;
-	const userId = get(page).data.user?.id;
-
-	saveSessionToHistory({ // This calls the imported service function
-		collectionId: collection.id,
+	const sessionEndTime = Date.now();
+	const sessionData = {
+		originalCollectionId: collection.id,
 		collectionName: collection.name,
-		timestamp: Date.now(), // Session end time
 		sessionStartTime: get(sessionStartTime),
-		durationMs: Date.now() - get(sessionStartTime),
-		totalCards: cardsInThisSpecificSession, // Cards in this particular completed segment
+		sessionEndTime: sessionEndTime,
+		durationMs: sessionEndTime - get(sessionStartTime),
+		cardsInView: get(currentFlashcards).length,
 		originalCollectionSize: get(masterSessionCards).length,
+		cardsAttempted: get(currentFlashcards).length, // For completed sessions, all cards in view were attempted
 		correct: get(correctAnswers),
 		incorrect: get(incorrectAnswers),
 		score: get(currentScore),
-		streak: get(studyStats).correctStreak,
-		longestStreak: get(studyStats).longestStreak,
-		sessionType: sessionTypeVal,
-		status: statusVal,
-		cardsAttemptedInView: cardsInThisSpecificSession
-	}, userId);
+		streak: get(studyStats).correctStreak, // Maps to finalStreak
+		longestStreak: get(studyStats).longestStreak, // Maps to longestStreakInSession
+		sessionType: sessionTypeVal.toUpperCase(),
+		status: statusVal.toUpperCase(),
+	};
+
+	try {
+		const success = await saveSessionToHistory(sessionData);
+		if (success) {
+			console.log('Completed session history saved successfully.');
+		} else {
+			console.warn('Failed to save completed session history.');
+		}
+	} catch (e) {
+		console.error('Error in _saveCompletedSessionToHistory:', e);
+	}
 }
 
 
@@ -609,14 +629,25 @@ export function showAllCards() {
 }
 
 // This function is for a full reset of the entire collection's study state (e.g. "Study Again" from scratch)
-export function restartSessionForCurrentCollection(collectionId: string) {
+export async function restartSessionForCurrentCollection(collectionId: string): Promise<void> {
   const currentActiveCollection = get(activeCollection);
   if (!currentActiveCollection || currentActiveCollection.id !== collectionId) {
     console.warn('Attempted to restart session for a collection that is not active or ID mismatch.');
     return;
   }
-  const userId = get(page).data.user?.id;
-  clearStudyProgress(collectionId, userId);
+  // userId is no longer passed to clearStudyProgress as API infers user.
+  try {
+    const success = await clearStudyProgress(collectionId);
+    if (success) {
+      console.log(`Study progress for collection ${collectionId} cleared successfully via API.`);
+    } else {
+      console.warn(`Failed to clear study progress for collection ${collectionId} via API.`);
+      // Decide if to proceed with local reset if API fails. For now, proceeding.
+    }
+  } catch (e) {
+    console.error(`Error clearing study progress for collection ${collectionId} via API:`, e);
+    // Decide if to proceed with local reset if API fails. For now, proceeding.
+  }
 
   currentIndex.set(0);
   correctAnswers.set(0);
@@ -678,46 +709,57 @@ export function resetStudyState() {
 }
 
 
-export function saveProgressForCurrentCollection(): void {
+export async function saveProgressForCurrentCollection(): Promise<void> {
 	const collection = get(activeCollection);
 	if (!collection || get(isReviewMode)) { // Do not save progress if in review mode
-    // console.log('In review mode, progress not saved.');
+    // console.log('In review mode, progress not saved for collection:', collection?.id);
     return;
   }
-  const userId = get(page).data.user?.id;
-	// Save state of ALL cards from masterSessionCards
+  // userId is no longer passed to saveStudyProgress or updateLastStudiedTimestamp as API infers user.
+  // const userId = get(page).data.user?.id;
+
 	const flashcardsToSaveState = get(masterSessionCards).map(fc => ({
 		id: fc.id,
-		failedInSession: fc.failedInSession || false, // Ensure defaults if undefined
-		answeredInSession: fc.answeredInSession || false // Ensure defaults if undefined
+		failedInSession: fc.failedInSession || false,
+		answeredInSession: fc.answeredInSession || false
 	}));
 
-	const currentTimestamp = Date.now();
-
-	const progressToSave: StudyProgress = {
+	// Construct payload matching UserProgressPayload from progressService.ts
+	const progressToSave = {
 		collectionId: collection.id,
 		currentIndex: get(currentIndex),
 		correctAnswers: get(correctAnswers),
 		incorrectAnswers: get(incorrectAnswers),
 		currentScore: get(currentScore),
 		sessionCompleted: get(sessionCompleted),
-		flashcardsState: flashcardsToSaveState, // Now uses master list
-		lastSavedTimestamp: currentTimestamp,
-		// lastReviewedIndex: get(currentIndex), // REMOVED
-		lastReviewedTimestamp: currentTimestamp,
-		sessionStartTime: get(sessionStartTime),
+		flashcardsState: flashcardsToSaveState,
+		sessionStartTime: get(sessionStartTime), // This is a JS timestamp
 		studyStats: get(studyStats)
+		// lastReviewedTimestamp is not part of UserProgressPayload
+		// lastSavedTimestamp is handled by the server
 	};
 
-	saveStudyProgress(progressToSave, userId);
-	updateLastStudiedTimestamp(collection.id, currentTimestamp, userId);
+	try {
+		const success = await saveStudyProgress(progressToSave);
+		if (success) {
+			// console.log('Study progress saved successfully via API for collection:', collection.id);
+			// Also update the last studied timestamp locally and via API
+			// updateLastStudiedTimestamp will also need to be async if it becomes API-driven,
+			// but for now, its internal API call will handle user context.
+			updateLastStudiedTimestamp(collection.id, Date.now(), get(page).data.user?.id); // Pass userId here for now as collectionMetaService might still use it
+		} else {
+			console.warn('Failed to save study progress via API for collection:', collection.id);
+		}
+	} catch (e) {
+		console.error('Error in saveProgressForCurrentCollection for collection:', collection.id, e);
+	}
 }
 
-export function triggerIncompleteSessionSave(saveStatus: 'incomplete' | 'abandoned') {
+export async function triggerIncompleteSessionSave(saveStatus: 'incomplete' | 'abandoned') {
 	const collection = get(activeCollection);
 	const studyStatsSnapshot = get(studyStats);
 	const sessionStartTimeVal = get(sessionStartTime);
-	const userId = get(page).data.user?.id; // Get current user ID
+	// const userId = get(page).data.user?.id; // Not needed for the new saveSessionToHistory call
 
 	if (!collection || !sessionStartTimeVal) {
 		console.log('Session not active or not started, not saving.');
@@ -729,12 +771,14 @@ export function triggerIncompleteSessionSave(saveStatus: 'incomplete' | 'abandon
 		return;
 	}
 
-	const duration = Date.now() - sessionStartTimeVal;
+	const sessionEndTime = Date.now();
+	const durationMs = sessionEndTime - sessionStartTimeVal;
+
 	// Only save if some meaningful interaction: e.g. viewed at least one card OR spent some minimum time
 	const minDurationMs = 3000; // 3 seconds
-	const cardsViewedInSession = studyStatsSnapshot.totalViewed; // totalViewed in current session/sub-session
+	const cardsViewedInSession = studyStatsSnapshot.totalViewed;
 
-	if (cardsViewedInSession === 0 && duration < minDurationMs) {
+	if (cardsViewedInSession === 0 && durationMs < minDurationMs) {
 		console.log('Minimal interaction, not saving session state.');
 		return;
 	}
@@ -747,27 +791,34 @@ export function triggerIncompleteSessionSave(saveStatus: 'incomplete' | 'abandon
 			: 'failed_only'
 		: 'full';
 
-	// Determine cardsAttemptedInView for incomplete sessions
-	// This should be the number of unique cards in the current view that were answered
 	const attemptedCardsInCurrentView = get(currentFlashcards).filter(fc => fc.answeredInSession).length;
 
-	saveSessionToHistory({
-		collectionId: collection.id,
+	const sessionData = {
+		originalCollectionId: collection.id,
 		collectionName: collection.name,
-		timestamp: Date.now(),
 		sessionStartTime: sessionStartTimeVal,
-		durationMs: duration,
-		totalCards: get(currentFlashcards).length, // Cards in the current view
+		sessionEndTime: sessionEndTime,
+		durationMs: durationMs,
+		cardsInView: get(currentFlashcards).length,
 		originalCollectionSize: get(masterSessionCards).length,
+		cardsAttempted: attemptedCardsInCurrentView,
 		correct: get(correctAnswers),
 		incorrect: get(incorrectAnswers),
 		score: get(currentScore),
 		streak: studyStatsSnapshot.correctStreak,
 		longestStreak: studyStatsSnapshot.longestStreak,
-		sessionType: sessionTypeVal,
-		status: saveStatus,
-		cardsAttemptedInView: attemptedCardsInCurrentView
-	}, userId);
+		sessionType: sessionTypeVal.toUpperCase(),
+		status: saveStatus.toUpperCase(),
+	};
 
-	console.log(`Session saved with status: ${saveStatus}`);
+	try {
+		const success = await saveSessionToHistory(sessionData);
+		if (success) {
+			console.log(`Incomplete/Abandoned session (${saveStatus}) history saved successfully.`);
+		} else {
+			console.warn(`Failed to save incomplete/abandoned session (${saveStatus}) history.`);
+		}
+	} catch (e) {
+		console.error(`Error in triggerIncompleteSessionSave (${saveStatus}):`, e);
+	}
 }
