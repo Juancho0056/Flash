@@ -345,26 +345,29 @@ export async function markAnswer(isCorrect: boolean) {
 	// ✅ Validar final de sesión y otorgar insignias relacionadas
 	const allAnswered = get(currentFlashcards).every(fc => fc.answeredInSession);
 	if (get(currentFlashcards).length > 0 && allAnswered) {
-		sessionCompleted.set(true); // Set session as completed
-		awardBadge(BadgeId.FIRST_SESSION_COMPLETED); // Award first session completion badge
+		sessionCompleted.set(true);
+		awardBadge(BadgeId.FIRST_SESSION_COMPLETED);
 
-		// Check for collection mastery (only if this is a full, non-review session view)
 		const isFullSessionView = !get(isFilteredViewActive) && !get(isReviewMode);
-		// New condition: all cards in masterSessionCards must be answered and not failed.
 		const allMasterCardsPerfectlyAnswered = get(masterSessionCards).every(
 			(card) => card.answeredInSession && !card.failedInSession
 		);
 
 		if (isFullSessionView && allMasterCardsPerfectlyAnswered) {
+			// Mastery Path
 			awardBadge(BadgeId.COLLECTION_MASTERED);
+			// Save current progress BEFORE review mode is set true, so it's not skipped by saveProgressForCurrentCollection's guard
+			await saveProgressForCurrentCollection();
 			const collection = get(activeCollection);
 			if (collection) {
-				saveReviewModeFor(collection.id, true); // Save review mode for this collection
+				saveReviewModeFor(collection.id, true);
 			}
+			await _saveCompletedSessionToHistory(); // Save history after setting review mode
+		} else {
+			// Session Completed but Not Mastered Path, or not full view
+			await _saveCompletedSessionToHistory();
+			await saveProgressForCurrentCollection(); // Save progress for the completed (but not mastered) session
 		}
-
-		// 🧾 Guardar historial
-		await _saveCompletedSessionToHistory(); // Call internal function
 	}
 
 	// SM-2 Logic Integration
@@ -426,7 +429,11 @@ export async function markAnswer(isCorrect: boolean) {
 		}
 	}
 
-  await saveProgressForCurrentCollection(); // Save resumable progress
+  // Only save progress here if the session wasn't completed and saved within this call already.
+  // The 'allAnswered' variable is from the session completion check earlier in this function.
+  if (!allAnswered) {
+    await saveProgressForCurrentCollection();
+  }
 }
 
 async function _persistDifficultStatus(cardId: string, makeDifficult: boolean): Promise<void> {
