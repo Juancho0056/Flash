@@ -45,8 +45,6 @@
 	import { awardBadge, BadgeId } from '$lib/services/badgeService';
 	import { afterUpdate } from 'svelte'; // Import afterUpdate for reactive updates
 	import { ttsSettings, updateTTSSettings } from '$lib/stores/ttsStore'; // Import TTS store and updater
-	import { sessionStartTime } from '$lib/stores/studyStore'; // Import sessionStartTime
-	import SessionTimer from '$lib/components/SessionTimer.svelte'; // Import SessionTimer
 
 	let hasShownPerfectBadgeMessage = false;
 	let showBadgeMessage = false;
@@ -70,9 +68,9 @@
 	$: {
 		if ($isFilteredViewActive && $currentFlashcards.length === 0) {
 			if ($isUnansweredOnly) {
-				filterActiveMessage = "All cards have been answered in this session.";
+				filterActiveMessage = 'All cards have been answered in this session.';
 			} else {
-				filterActiveMessage = "No cards marked as failed in this session.";
+				filterActiveMessage = 'No cards marked as failed in this session.';
 			}
 		} else {
 			filterActiveMessage = null; // Clear message if cards are present or no filter active
@@ -429,27 +427,25 @@
 	$: allBadgesUnlocked = $sessionCompleted && $correctAnswers > 0 && $incorrectAnswers === 0;
 
 	// Reactive variable for the autoPlay checkbox
-  let autoPlayTTS: boolean;
-  ttsSettings.subscribe(settings => {
-    autoPlayTTS = settings.autoPlay;
-  });
+	let autoPlayTTS: boolean;
+	ttsSettings.subscribe((settings) => {
+		autoPlayTTS = settings.autoPlay;
+	});
 
-  function handleAutoPlayChange(event: Event) {
-    const target = event.target as HTMLInputElement;
-    updateTTSSettings({ autoPlay: target.checked });
-  }
+	function handleAutoPlayChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		updateTTSSettings({ autoPlay: target.checked });
+	}
 
-  // Determine card language
-  // TODO: This should ideally come from collection settings or individual card metadata
-  // For now, we'll use a placeholder or the default from ttsSettings / Card.svelte.
-  // If activeCollection had a 'lang' property, it would be:
-  // $: cardLanguage = $activeCollection?.lang || $ttsSettings.defaultLang;
-  // Using a fixed example for now, or relying on Card's default / ttsSettings.defaultLang
-  let cardLanguage: string | undefined = undefined; // Let Card.svelte use its default or ttsSettings.defaultLang
-  // $: cardLanguage = $activeCollection?.language; // Example if collection had a language field
-  // $: if ($activeCollection && $activeCollection.lang) cardLanguage = $activeCollection.lang;
-
-
+	// Determine card language
+	// TODO: This should ideally come from collection settings or individual card metadata
+	// For now, we'll use a placeholder or the default from ttsSettings / Card.svelte.
+	// If activeCollection had a 'lang' property, it would be:
+	// $: cardLanguage = $activeCollection?.lang || $ttsSettings.defaultLang;
+	// Using a fixed example for now, or relying on Card's default / ttsSettings.defaultLang
+	let cardLanguage: string | undefined = undefined; // Let Card.svelte use its default or ttsSettings.defaultLang
+	// $: cardLanguage = $activeCollection?.language; // Example if collection had a language field
+	// $: if ($activeCollection && $activeCollection.lang) cardLanguage = $activeCollection.lang;
 </script>
 
 <svelte:head>
@@ -520,25 +516,25 @@
 	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
 		<div class="study-area rounded-lg bg-white p-6 shadow-xl md:p-8">
 			<SessionStats />
-      <div class="my-2 flex items-center justify-between">
-        {#if $activeCollection && $currentCard} <SessionTimer startTime={$sessionStartTime} /> {/if}
-        <div class="flex items-center">
-          <label for="autoPlayToggle" class="mr-2 text-sm text-gray-700">Auto-speak cards:</label>
-          <input
-            type="checkbox"
-            id="autoPlayToggle"
-            bind:checked={autoPlayTTS}
-            on:change={handleAutoPlayChange}
-            class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-          />
-        </div>
-      </div>
+
+			<div class="my-4 flex items-center justify-end">
+				<label for="autoPlayToggle" class="mr-2 text-sm text-gray-700">Auto-speak cards:</label>
+				<input
+					type="checkbox"
+					id="autoPlayToggle"
+					bind:checked={autoPlayTTS}
+					on:change={handleAutoPlayChange}
+					class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+				/>
+			</div>
+
 			{#if allBadgesUnlocked}
 				<p class="mt-4 rounded-md bg-green-100 p-2 text-sm text-green-700">
 					🏆 Has completado esta colección perfectamente y ya obtuviste todos los logros
 					disponibles. ¡Bien hecho!
 				</p>
 			{/if}
+
 			<div class="mb-4 flex items-center justify-between pt-4">
 				<p class="text-sm text-gray-600">
 					Card {$currentIndex + 1} of {$totalFlashcards}
@@ -549,10 +545,11 @@
 						(Failed Only)
 					{/if}
 				</p>
+
 				<div class="flex space-x-2">
 					<button
 						on:click={handleShuffle}
-						class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 focus:outline-none"
+						class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
 					>
 						Shuffle
 					</button>
@@ -560,7 +557,7 @@
 					{#if $isFilteredViewActive}
 						<button
 							on:click={handleShowAllCards}
-							class="rounded-md border border-blue-300 bg-blue-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-600 focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 focus:outline-none"
+							class="rounded-md border border-blue-300 bg-blue-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-600 focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
 						>
 							Show All Cards
 						</button>
@@ -568,13 +565,13 @@
 						<button
 							on:click={handleFilterFailedCards}
 							disabled={!$currentFlashcards.some((card) => card.failedInSession)}
-							class="rounded-md border border-orange-300 bg-orange-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-orange-600 focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+							class="rounded-md border border-orange-300 bg-orange-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-600 focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 disabled:opacity-50"
 						>
 							Study Failed Only
 						</button>
 						<button
 							on:click={handleFilterUnansweredCards}
-							class="rounded-md border border-purple-300 bg-purple-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-600 focus:ring-2 focus:ring-purple-400 focus:ring-offset-1 focus:outline-none"
+							class="rounded-md border border-purple-300 bg-purple-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-600 focus:ring-2 focus:ring-purple-400 focus:ring-offset-1"
 						>
 							Unanswered Only
 						</button>
@@ -582,122 +579,124 @@
 				</div>
 			</div>
 
-			<div class="mb-4 h-2.5 w-full rounded-full bg-gray-200 dark:bg-gray-700">
+			<div class="mb-4 h-2.5 w-full rounded-full bg-gray-200">
 				<div
-					class="h-2.5 rounded-full bg-blue-600 transition-all duration-300 ease-out"
+					class="h-2.5 rounded-full bg-blue-600 transition-all duration-300"
 					style="width: {$progressPercentage}%"
 				></div>
 			</div>
 
 			{#if $currentCard}
-				<div
-					class="card-wrapper mx-auto flex flex-grow items-center justify-center transition-all duration-300 ease-in-out"
-					class:border-green-500={answerFeedback === 'correct'}
-					class:border-red-500={answerFeedback === 'incorrect'}
-					class:shadow-green-xl={answerFeedback === 'correct'}
-					class:shadow-red-xl={answerFeedback === 'incorrect'}
-					class:border-4={answerFeedback !== null}
-					style="max-width: 500px; min-height: 260px;"
-				>
-					<Card
-						front={$currentCard.question}
-						back={$currentCard.answer}
-						imageUrl={$currentCard.imageUrl}
-						pronunciation={$currentCard.pronunciation}
-						example={$currentCard.example}
-						flipped={$currentCard.flipped || false}
-            cardLang={cardLanguage}
-						on:toggle={(e) => flipCard($currentCard!.id, e.detail.flipped)}
-					/>
-				</div>
-				<div class="flex items-center justify-center text-xs text-gray-500">
-					<p class="mr-4">
-						Viewed: {$currentCard.timesViewed}, Correct: {$currentCard.timesCorrect}
-					</p>
-					<button
-						on:click={handleToggleDifficult}
-						title={$currentCard.isDifficult ? 'Mark as not difficult' : 'Mark as difficult'}
-						class:text-yellow-500={$currentCard.isDifficult}
-						class:hover:text-yellow-600={$currentCard.isDifficult}
-						class:text-gray-400={!$currentCard.isDifficult}
-						class:hover:text-gray-600={!$currentCard.isDifficult}
-						class="rounded-full p-1 transition-colors"
+				{#if $currentCard}
+					<div
+						class="card-wrapper mx-auto flex flex-grow items-center justify-center transition-all duration-300 ease-in-out"
+						class:border-green-500={answerFeedback === 'correct'}
+						class:border-red-500={answerFeedback === 'incorrect'}
+						class:shadow-green-xl={answerFeedback === 'correct'}
+						class:shadow-red-xl={answerFeedback === 'incorrect'}
+						class:border-4={answerFeedback !== null}
+						style="max-width: 500px; min-height: 260px;"
 					>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							viewBox="0 0 24 24"
-							fill="currentColor"
-							class="h-5 w-5"
+						<Card
+							front={$currentCard.question}
+							back={$currentCard.answer}
+							imageUrl={$currentCard.imageUrl}
+							pronunciation={$currentCard.pronunciation}
+							example={$currentCard.example}
+							flipped={$currentCard.flipped || false}
+							cardLang={cardLanguage}
+							on:toggle={(e) => flipCard($currentCard!.id, e.detail.flipped)}
+						/>
+					</div>
+
+					<div class="flex items-center justify-center text-xs text-gray-500">
+						<p class="mr-4">
+							Viewed: {$currentCard.timesViewed}, Correct: {$currentCard.timesCorrect}
+						</p>
+						<button
+							on:click={handleToggleDifficult}
+							title={$currentCard.isDifficult ? 'Mark as not difficult' : 'Mark as difficult'}
+							class:text-yellow-500={$currentCard.isDifficult}
+							class:hover:text-yellow-600={$currentCard.isDifficult}
+							class:text-gray-400={!$currentCard.isDifficult}
+							class:hover:text-gray-600={!$currentCard.isDifficult}
+							class="rounded-full p-1 transition-colors"
 						>
-							<path
-								fill-rule="evenodd"
-								d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.006z"
-								clip-rule="evenodd"
-							/>
-						</svg>
-					</button>
-				</div>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								viewBox="0 0 24 24"
+								fill="currentColor"
+								class="h-5 w-5"
+							>
+								<path
+									fill-rule="evenodd"
+									d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.006z"
+									clip-rule="evenodd"
+								/>
+							</svg>
+						</button>
+					</div>
+
+					<!-- Score y navegación -->
+					<div class="my-4 text-center">
+						<p class="mb-1 text-xl font-bold text-indigo-600">Score: {$currentScore}</p>
+						<p class="text-md">{$correctAnswers} Correct, {$incorrectAnswers} Incorrect</p>
+					</div>
+
+					<div
+						class="mt-8 flex flex-col items-center justify-between space-y-3 sm:flex-row sm:space-y-0 sm:space-x-3"
+					>
+						<button
+							on:click={() => handleNavigate('prev')}
+							disabled={$totalFlashcards <= 1}
+							class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+						>
+							Previous
+						</button>
+						<div class="flex space-x-3">
+							<button
+								on:click={() => handleMarkAnswer(false)}
+								disabled={!$currentCard ||
+									$currentCard.flipped ||
+									($currentCard.answeredInSession && !$currentCard.failedInSession)}
+								class="rounded-md bg-red-500 px-4 py-3 text-sm text-white transition-colors hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								Incorrect
+							</button>
+							<button
+								on:click={() => handleMarkAnswer(true)}
+								disabled={!$currentCard ||
+									$currentCard.flipped ||
+									($currentCard.answeredInSession && !$currentCard.failedInSession)}
+								class="rounded-md bg-green-500 px-4 py-3 text-sm text-white transition-colors hover:bg-green-600 focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+							>
+								Correct
+							</button>
+						</div>
+						<button
+							on:click={() => handleNavigate('next')}
+							disabled={$totalFlashcards <= 1}
+							class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+						>
+							Next
+						</button>
+					</div>
+				{/if}
+				<!-- Ya corregido como en la respuesta anterior -->
+			{:else if !$currentCard && $totalFlashcards > 0}
+				<p class="py-10 text-center text-red-500">
+					Error: Card data seems to be in an inconsistent state. Try reloading or selecting another
+					collection.
+				</p>
+			{:else if !$currentCard}
+				<p class="py-10 text-center text-gray-500">
+					Select a collection to start studying or manage your cards.
+				</p>
 			{:else}
 				<p class="py-10 text-center text-yellow-600">
 					{filterActiveMessage}
 				</p>
-			{:else if !$currentCard && $totalFlashcards > 0}
-				<!-- This case might occur if currentIndex is out of bounds, though less likely with current logic -->
-				<p class="py-10 text-center text-red-500">
-					Error: Card data seems to be in an inconsistent state. Try reloading or selecting another collection.
-				</p>
-			{:else if !$currentCard}
-        <!-- Generic message if no card and no specific filter message (e.g. initial load before selection) -->
-				<p class="py-10 text-center text-gray-500">
-					Select a collection to start studying or manage your cards.
-				</p>
-      {/if}
-
-
-			{#if $currentCard} <!-- Only show score and navigation if there's a card -->
-			<div class="my-4 text-center">
-				<p class="mb-1 text-xl font-bold text-indigo-600">Score: {$currentScore}</p>
-				<p class="text-md">{$correctAnswers} Correct, {$incorrectAnswers} Incorrect</p>
-			</div>
-
-			<div
-				class="mt-8 flex flex-col items-center justify-between space-y-3 sm:flex-row sm:space-y-0 sm:space-x-3"
-			>
-				<button
-					on:click={() => handleNavigate('prev')}
-					disabled={$totalFlashcards <= 1}
-					class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-				>
-					Previous
-				</button>
-				<div class="flex space-x-3">
-					<button
-						on:click={() => handleMarkAnswer(false)}
-						disabled={!$currentCard ||
-							$currentCard.flipped ||
-							($currentCard.answeredInSession && !$currentCard.failedInSession)}
-						class="rounded-md bg-red-500 px-4 py-3 text-sm text-white transition-colors hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-					>
-						Incorrect
-					</button>
-					<button
-						on:click={() => handleMarkAnswer(true)}
-						disabled={!$currentCard ||
-							$currentCard.flipped ||
-							($currentCard.answeredInSession && !$currentCard.failedInSession)}
-						class="rounded-md bg-green-500 px-4 py-3 text-sm text-white transition-colors hover:bg-green-600 focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-					>
-						Correct
-					</button>
-				</div>
-				<button
-					on:click={() => handleNavigate('next')}
-					disabled={$totalFlashcards <= 1}
-					class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-				>
-					Next
-				</button>
-			</div>
+			{/if}
 		</div>
 	{:else if selectedCollectionId && !isLoadingFlashcards && $totalFlashcards === 0}
 		<p class="rounded-md border border-yellow-300 bg-yellow-50 p-4 text-gray-600">
@@ -709,19 +708,18 @@
 	{/if}
 
 	<div class="mt-2 text-center">
-		<a href="/" class="text-indigo-600 transition-colors hover:text-indigo-800 hover:underline"
+		<a href="/" class="text-indigo-600 hover:text-indigo-800 hover:underline"
 			>Back to Collections List</a
 		>
 	</div>
 </div>
 
 <style>
-	/* Ensure select dropdown arrow is visible with tailwind */
 	select {
 		background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
 		background-position: right 0.5rem center;
 		background-repeat: no-repeat;
 		background-size: 1.5em 1.5em;
-		padding-right: 2.5rem; /* Make space for arrow */
+		padding-right: 2.5rem;
 	}
 </style>
