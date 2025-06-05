@@ -1,4 +1,3 @@
-<!-- src/routes/index.svelte -->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
