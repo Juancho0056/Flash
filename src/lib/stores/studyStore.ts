@@ -4,7 +4,7 @@ import { page } from '$app/stores';
 import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
 import { awardBadge, BadgeId } from '$lib/services/badgeService'; // Import BadgeId and awardBadge
 import { globalUserStats, incrementTotalCorrectAnswersAllTime } from '$lib/stores/globalUserStats'; // Import global stats
-import { loadStudyProgress, saveStudyProgress, type StudyProgress } from '$lib/services/progressService';
+import { loadStudyProgress, saveStudyProgress } from '$lib/services/progressService';
 import { updateLastStudiedTimestamp } from '$lib/services/collectionMetaService';
 import { saveSessionToHistory } from '$lib/services/studyHistoryService';
 import { clearStudyProgress } from '$lib/services/progressService';
@@ -95,6 +95,7 @@ export function loadReviewModeFor(collectionId: string) {
 	const userId = get(page).data.user?.id;
 	const map = JSON.parse(sessionStorage.getItem(getReviewModeStorageKey(userId)) || '{}');
 	const active = !!map[collectionId];
+	console.log('active review', active);
 	isReviewMode.set(active);
 }
 
@@ -104,6 +105,7 @@ export function saveReviewModeFor(collectionId: string, value: boolean) {
 	const map = JSON.parse(sessionStorage.getItem(storageKey) || '{}');
 	map[collectionId] = value;
 	sessionStorage.setItem(storageKey, JSON.stringify(map));
+	console.log('saveReviewModeFor', value);
 	isReviewMode.set(value);
 }
 // Function to load a new collection for study
@@ -340,7 +342,6 @@ export async function markAnswer(isCorrect: boolean) {
 	}
 
 	// SM-2 Logic Integration
-	const userId = get(page).data.user?.id; // Get userId
 	const cardId = get(currentCard)?.id;
 	const collectionId = get(activeCollection)?.id;
 	const collectionName = get(activeCollection)?.name; // Get collection name
@@ -710,11 +711,13 @@ export function resetStudyState() {
 
 
 export async function saveProgressForCurrentCollection(): Promise<void> {
+	console.log('saveProgressForCurrentCollection');
 	const collection = get(activeCollection);
+	console.log('collection', collection);
 	if (!collection || get(isReviewMode)) { // Do not save progress if in review mode
-    // console.log('In review mode, progress not saved for collection:', collection?.id);
-    return;
-  }
+    	 console.log('In review mode, progress not saved for collection:', collection?.id);
+    	return;
+  	}
   // userId is no longer passed to saveStudyProgress or updateLastStudiedTimestamp as API infers user.
   // const userId = get(page).data.user?.id;
 
@@ -740,7 +743,9 @@ export async function saveProgressForCurrentCollection(): Promise<void> {
 	};
 
 	try {
+		
 		const success = await saveStudyProgress(progressToSave);
+		console.log('Save Progress', success);
 		if (success) {
 			// console.log('Study progress saved successfully via API for collection:', collection.id);
 			// Also update the last studied timestamp locally and via API

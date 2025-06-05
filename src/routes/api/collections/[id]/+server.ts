@@ -2,6 +2,7 @@ import type { RequestHandler } from '@sveltejs/kit';
 import { prisma } from '$lib/db';
 import { json, error } from '@sveltejs/kit';
 import type { Prisma } from '@prisma/client';
+import { CefrLevel } from '@prisma/client';
 
 // Define el tipo de cuerpo esperado para PUT
 interface UpdateCollectionBody {
@@ -68,13 +69,13 @@ export const PUT: RequestHandler = async ({ request, params }) => {
 
   if (cefrLevel !== undefined) {
     if (cefrLevel === null || cefrLevel === '') {
-      updateData.cefrLevel = null; // Clear the CEFR level
+      updateData.cefrLevel = null;
+    } else if (Object.values(CefrLevel).includes(cefrLevel as CefrLevel)) {
+      updateData.cefrLevel = cefrLevel as CefrLevel;
     } else {
-      // Prisma client expects string matching enum member for enum types
-      updateData.cefrLevel = cefrLevel;
+      throw new Error(`Invalid CEFR level: ${cefrLevel}`);
     }
   }
-
   try {
     const updatedCollection = await prisma.collection.update({
       where: { id: collectionId },

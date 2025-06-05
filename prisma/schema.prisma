@@ -125,7 +125,7 @@ model UserFlashcardSM2 {
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
-  UNIQUE                   (userId, flashcardId) // Each user has one SM2 record per flashcard
+  @@unique                   ([userId, flashcardId]) // Each user has one SM2 record per flashcard
   @@index([userId])
   @@index([flashcardId])
   @@index([userId, dueDate]) // For efficiently querying due cards for a user
@@ -155,7 +155,7 @@ model UserStudyProgress {
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 
-  UNIQUE                   (userId, originalCollectionId) // Each user has one progress record per collection
+  @@unique                   ([userId, originalCollectionId]) // Each user has one progress record per collection
   @@index([userId])
   @@index([originalCollectionId])
 }

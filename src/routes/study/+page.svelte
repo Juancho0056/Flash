@@ -312,7 +312,8 @@
 
 		saveProgressForCurrentCollection(); // Save resumable progress
 		resetStudyState(); // Clear study session state from memory
-		if (feedbackTimeout) { // feedbackTimeout is a local variable in this component
+		if (feedbackTimeout) {
+			// feedbackTimeout is a local variable in this component
 			clearTimeout(feedbackTimeout);
 		}
 	});
