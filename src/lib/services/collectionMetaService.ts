@@ -20,7 +20,10 @@ function loadAllTimestamps(): CollectionTimestamps {
   }
   return {};
 }
-
+export function wasCollectionCompleted(collectionId: string): boolean {
+	const raw = localStorage.getItem(`${METADATA_STORAGE_KEY}${collectionId}:sessionCompleted`);
+	return raw === 'true';
+}
 function saveAllTimestamps(timestamps: CollectionTimestamps): void {
   if (typeof window === 'undefined') return; // SSR Guard
   try {

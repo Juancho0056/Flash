@@ -8,6 +8,7 @@
 	export let message = 'Are you sure?';
 	export let confirmText = 'Confirm';
 	export let cancelText = 'Cancel';
+	export let reviewText = '';
 	export let isLoading = false; // For showing loading state on confirm button
 	export let disableConfirm = false;
 	const dispatch = createEventDispatcher();
@@ -16,6 +17,11 @@
 		if (isLoading) return;
 		console.log('Confirm clicked');
 		dispatch('confirm');
+	}
+	function handleReview() {
+		if (isLoading) return;
+		dispatch('review');
+		// Parent should control isOpen state primarily
 	}
 
 	function handleCancel() {
@@ -36,7 +42,7 @@
 
 {#if isOpen}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 p-4 backdrop-blur-sm"
+		class="bg-opacity-75 fixed inset-0 z-50 flex items-center justify-center bg-black p-4 backdrop-blur-sm"
 		transition:fade={{ duration: 150 }}
 		on:click|self={handleCancel}
 	>
@@ -56,18 +62,27 @@
 				<button
 					on:click={handleCancel}
 					disabled={isLoading}
-					class="rounded-md border border-gray-300 px-5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-60"
+					class="rounded-md border border-gray-300 px-5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:opacity-60"
 				>
 					{cancelText}
 				</button>
-				<button
-						on:click={handleConfirm}
-						disabled={isLoading || disableConfirm} 
-						class="flex items-center justify-center rounded-md bg-red-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-60"
+				{#if reviewText}
+					<button
+						on:click={handleReview}
+						disabled={isLoading}
+						class="rounded-md border border-gray-300 px-5 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:opacity-60"
 					>
+						{reviewText}
+					</button>
+				{/if}
+				<button
+					on:click={handleConfirm}
+					disabled={isLoading || disableConfirm}
+					class="flex items-center justify-center rounded-md bg-red-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:outline-none disabled:opacity-60"
+				>
 					{#if isLoading}
 						<svg
-							class="-ml-1 mr-2 h-4 w-4 animate-spin text-white"
+							class="mr-2 -ml-1 h-4 w-4 animate-spin text-white"
 							xmlns="http://www.w3.org/2000/svg"
 							fill="none"
 							viewBox="0 0 24 24"

@@ -6,6 +6,7 @@
 	import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
 	import Card from '$lib/components/Card.svelte'; // Adjust path as necessary
 	import SessionStats from '$lib/components/SessionStats.svelte'; // Import SessionStats component
+	import { tick } from 'svelte';
 	import {
 		currentFlashcards,
 		activeCollection,
@@ -33,16 +34,20 @@
 		incrementTimesViewedForCurrentCard,
 		filterUnansweredCards,
 		setUnansweredOnlyView,
-		isReviewMode
+		isReviewMode,
+		incrementTimesViewedFor,
+		showOnlyFailed,
+		restartSessionForCurrentCollection
 	} from '$lib/stores/studyStore';
 	import type { CollectionWithFlashcards, FlashcardStudy } from '$lib/stores/studyStore';
 	import Modal from '$lib/components/Modal.svelte'; // Import Modal
 	import { toast } from '$lib/toastStore'; // Import toast
 	import { awardBadge, BadgeId } from '$lib/services/badgeService';
+	import { afterUpdate } from 'svelte'; // Import afterUpdate for reactive updates
 
-	$: allCorrectAndAnswered =
-		$sessionCompleted &&
-		$currentFlashcards.every((card) => card.answeredInSession && !card.failedInSession);
+	let hasShownPerfectBadgeMessage = false;
+	let showBadgeMessage = false;
+
 	let collections: Collection[] = []; // For selection dropdown
 	let selectedCollectionId: string | undefined = undefined;
 	let errorMessage: string | null = null;
@@ -53,7 +58,36 @@
 	$: if ($currentCard) {
 		incrementTimesViewedForCurrentCard();
 	}
-	$: allBadgesUnlocked = $sessionCompleted && $correctAnswers > 0 && $incorrectAnswers === 0;
+	let showModal = false; // For session summary modal
+
+	$: showModal = $sessionCompleted && !$isFilteredViewActive;
+	sessionCompleted.subscribe((value) => {
+		console.log('🧠 sessionCompleted changed to:', value, 'at', new Date().toISOString());
+	});
+
+	sessionCompleted.subscribe((value) => {
+		console.log('🧠 sessionCompleted changed to:', value, 'at', new Date().toISOString());
+		console.trace(); // imprime quién cambió el valor
+	});
+
+	afterUpdate(async () => {
+		if (hasShownPerfectBadgeMessage || showBadgeMessage) return;
+
+		await tick(); // Espera que todo se reactive
+
+		const completed = get(sessionCompleted);
+		const cards = get(currentFlashcards);
+
+		if (!completed || cards.length === 0) return;
+
+		const allCorrect = cards.every((fc) => fc.answeredInSession && !fc.failedInSession);
+
+		if (allCorrect) {
+			console.log('🏅 Mostrando mensaje de logro por colección perfecta');
+			showBadgeMessage = true;
+			hasShownPerfectBadgeMessage = true;
+		}
+	});
 
 	async function handleFilterUnansweredCards() {
 		filterUnansweredCards();
@@ -108,10 +142,10 @@
 				throw new Error(errData.message);
 			}
 			const fullCollection: CollectionWithFlashcards = await response.json();
-			loadCollectionForStudy(fullCollection); // This will process and set flashcards in the store
-
-			// If there are flashcards, update timesViewed for the first card
+			loadCollectionForStudy(fullCollection);
+			await tick(); // 🔁 espera reactividad
 			if ($currentCard) {
+				incrementTimesViewedFor($currentCard.id);
 				await updateTimesViewedAPI($currentCard.id, $currentCard.timesViewed + 1);
 			}
 		} catch (err: any) {
@@ -135,7 +169,10 @@
 				currentFlashcards.update((cards) => {
 					const idx = cards.findIndex((c) => c.id === flashcardId);
 					if (idx !== -1) {
-						cards[idx] = { ...cards[idx], ...updated };
+						cards[idx] = {
+							...cards[idx], // 🟢 conserva flags locales como answeredInSession
+							timesViewed: updated.timesViewed // 🟢 solo actualiza lo necesario
+						};
 					}
 					return cards;
 				});
@@ -146,7 +183,15 @@
 	}
 
 	async function handleMarkAnswer(isCorrect: boolean) {
-		if (!$currentCard || $currentCard.flipped || $currentCard.answeredInSession) return;
+		if (
+			!$currentCard ||
+			$currentCard.flipped ||
+			($currentCard.answeredInSession && !$currentCard.failedInSession)
+		) {
+			console.log($currentCard);
+			console.warn('Cannot mark answer: card not available or already answered.');
+			return;
+		}
 
 		// feedback visual
 		if (feedbackTimeout) {
@@ -219,11 +264,17 @@
 		showAllCards(); // This action will change currentFlashcards and currentIndex
 		setUnansweredOnlyView(false);
 	}
+	onMount(() => {
+		const interval = setInterval(() => {
+			saveProgressForCurrentCollection();
+		}, 10000); // cada 10 segundos
 
+		return () => clearInterval(interval); // limpieza al desmontar
+	});
 	onMount(async () => {
 		// Make onMount async to await fetchCollections
 		await fetchCollections(); // Wait for collections to be available for the dropdown
-
+		console.log('🔁 currentCard after load:', $currentCard);
 		// Read collectionId from URL after component mounts and page store is accessible
 		const currentUrlParams = get(page).url.searchParams;
 		const urlCollectionId = currentUrlParams.get('collectionId');
@@ -343,6 +394,29 @@
 			});
 		}
 	}
+
+	function handleStudyAgainFullReset() {
+		const id = $activeCollection?.id;
+		if (!id) return;
+
+		restartSessionForCurrentCollection(id);
+		showModal = false;
+	}
+
+	function handleReviewOnlyFailed() {
+		showOnlyFailed.set(true);
+		isFilteredViewActive.set(true);
+		showModal = false;
+		// ❗️ No tocar sessionCompleted aquí
+	}
+
+	function handleFreeMode() {
+		showAllCards();
+		showModal = false;
+		// ❗️ No tocar sessionCompleted aquí
+	}
+
+	$: allBadgesUnlocked = $sessionCompleted && $correctAnswers > 0 && $incorrectAnswers === 0;
 </script>
 
 <svelte:head>
@@ -351,16 +425,18 @@
 
 <div class="container mx-auto max-w-3xl p-4 md:p-6">
 	<Modal
-		bind:isOpen={$sessionCompleted}
+		bind:isOpen={showModal}
 		title="Session Summary"
 		message={`Collection: ${$activeCollection?.name || 'N/A'}\nTotal Cards: ${$totalFlashcards}\nCorrect: ${$correctAnswers}\nIncorrect: ${$incorrectAnswers}\nFinal Score: ${$currentScore}`}
 		confirmText={$correctAnswers > 0 && $incorrectAnswers === 0
 			? 'Repasar sin nuevos logros'
 			: 'Study Again (Same Collection)'}
 		disableConfirm={false}
-		cancelText="Close / Pick New"
-		on:confirm={handleStudyAgain}
-		on:cancel={handleCloseSummary}
+		cancelText="Close"
+		reviewText="Review"
+		on:confirm={handleStudyAgainFullReset}
+		on:review={handleReviewOnlyFailed}
+		on:cancel={handleFreeMode}
 	>
 		{#if allBadgesUnlocked}
 			<p class="mt-4 rounded-md bg-green-100 p-2 text-sm text-green-700">
@@ -411,7 +487,7 @@
 	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
 		<div class="study-area rounded-lg bg-white p-6 shadow-xl md:p-8">
 			<SessionStats />
-			{#if allCorrectAndAnswered}
+			{#if allBadgesUnlocked}
 				<p class="mt-4 rounded-md bg-green-100 p-2 text-sm text-green-700">
 					🏆 Has completado esta colección perfectamente y ya obtuviste todos los logros
 					disponibles. ¡Bien hecho!
@@ -538,14 +614,18 @@
 				<div class="flex space-x-3">
 					<button
 						on:click={() => handleMarkAnswer(false)}
-						disabled={!$currentCard || $currentCard.flipped || $currentCard.answeredInSession}
+						disabled={!$currentCard ||
+							$currentCard.flipped ||
+							($currentCard.answeredInSession && !$currentCard.failedInSession)}
 						class="rounded-md bg-red-500 px-4 py-3 text-sm text-white transition-colors hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Incorrect
 					</button>
 					<button
 						on:click={() => handleMarkAnswer(true)}
-						disabled={!$currentCard || $currentCard.flipped || $currentCard.answeredInSession}
+						disabled={!$currentCard ||
+							$currentCard.flipped ||
+							($currentCard.answeredInSession && !$currentCard.failedInSession)}
 						class="rounded-md bg-green-500 px-4 py-3 text-sm text-white transition-colors hover:bg-green-600 focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 					>
 						Correct

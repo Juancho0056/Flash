@@ -2,9 +2,10 @@ import { studyStats } from '$lib/stores/studyStats';
 import { writable, derived, get } from 'svelte/store'; // Added get here explicitly
 import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
 import { awardBadge, BadgeId } from '$lib/services/badgeService';
-import { loadStudyProgress, saveStudyProgress, clearStudyProgress, type StudyProgress } from '$lib/services/progressService';
+import { loadStudyProgress, saveStudyProgress, type StudyProgress } from '$lib/services/progressService';
 import { updateLastStudiedTimestamp } from '$lib/services/collectionMetaService';
 import { saveSessionToHistory } from '$lib/services/studyHistoryService';
+import { clearStudyProgress } from '$lib/services/progressService';
 
 export interface FlashcardStudy extends PrismaFlashcard {
   flipped?: boolean;
@@ -92,75 +93,85 @@ export function saveReviewModeFor(collectionId: string, value: boolean) {
 }
 // Function to load a new collection for study
 export function loadCollectionForStudy(collectionData: CollectionWithFlashcards | null) {
-  if (collectionData && collectionData.flashcards) {
-    loadReviewModeFor(collectionData.id);
-    const savedProgress = loadStudyProgress(collectionData.id);
-    const review = get(isReviewMode); // ⚠️ Verificamos si es modo repaso
+  if (!collectionData || !collectionData.flashcards) {
+    resetStudyState();
+    return;
+  }
 
-    let initialFlashcards = collectionData.flashcards.map(fc => ({
+  loadReviewModeFor(collectionData.id);
+  const savedProgress = loadStudyProgress(collectionData.id);
+  const review = get(isReviewMode);
+
+  activeCollection.set(collectionData);
+  console.log(`Loading collection for study: ${collectionData.name} (${collectionData.id})`);
+  console.log('Review mode:', review);
+  console.log('Saved progress:', savedProgress);
+
+  const savedFlashcardsState = new Map<string, { answeredInSession: boolean; failedInSession: boolean }>(
+    savedProgress?.flashcardsState?.map(fs => [
+      String(fs.id),
+      {
+        answeredInSession: fs.answeredInSession ?? false,
+        failedInSession: fs.failedInSession ?? false
+      }
+    ]) ?? []
+  );
+
+  const initialFlashcards = collectionData.flashcards.map(fc => {
+    const savedState = savedFlashcardsState.get(String(fc.id));
+    return {
       ...fc,
       flipped: false,
-      failedInSession: false,
-      isDifficult: fc.isDifficult || false,
-      timesViewed: fc.timesViewed || 0,
-      timesCorrect: fc.timesCorrect || 0,
-      answeredInSession: false // ✅ importante: limpiar solo si no es repaso
-    }));
+      failedInSession: savedState?.failedInSession ?? false,
+      answeredInSession: savedState?.answeredInSession ?? false,
+      isDifficult: fc.isDifficult ?? false,
+      timesViewed: fc.timesViewed ?? 0,
+      timesCorrect: fc.timesCorrect ?? 0
+    };
+  });
 
-    activeCollection.set(collectionData);
-    console.log(`Loading collection for study: ${collectionData.name} (${collectionData.id})`);
-    console.log('Saved progress:', savedProgress);
-
-    // Si hay progreso guardado y no es repaso, restauramos el estado
-    // Si es repaso, usamos el estado guardado pero no lo modificamos
-    // Si no hay progreso guardado, iniciamos una nueva sesión
-    if (!review && savedProgress && !savedProgress.sessionCompleted) {
-      currentIndex.set(savedProgress.currentIndex);
-      correctAnswers.set(savedProgress.correctAnswers);
-      incorrectAnswers.set(savedProgress.incorrectAnswers);
-      currentScore.set(savedProgress.currentScore);
-      sessionCompleted.set(false);
-
-      const savedFlashcardsState = new Map(savedProgress.flashcardsState.map(fs => [fs.id, fs]));
-      initialFlashcards = initialFlashcards.map(card => {
-        const savedCardState = savedFlashcardsState.get(card.id);
-        return {
-          ...card,
-            failedInSession: savedCardState?.failedInSession || false,
-            answeredInSession: savedCardState?.answeredInSession || false,
-        };
-      });
-    } else {
-      if (!review && savedProgress?.sessionCompleted) {
-        clearStudyProgress(collectionData.id);
-      }
-
-      if (!review) {
-        currentIndex.set(0);
-        correctAnswers.set(0);
-        incorrectAnswers.set(0);
-        currentScore.set(0);
-        sessionCompleted.set(false);
-      }
-
-      if (review) {
-        // Conservamos las métricas anteriores para repaso si no hay nuevas tarjetas
-        currentIndex.set(savedProgress?.currentIndex ?? 0);
-        correctAnswers.set(savedProgress?.correctAnswers ?? 0);
-        incorrectAnswers.set(savedProgress?.incorrectAnswers ?? 0);
-        currentScore.set(savedProgress?.currentScore ?? 0);
-        sessionCompleted.set(savedProgress?.sessionCompleted ?? false);
-      }
-    }
-    sessionStartTime.set(Date.now());
-    currentFlashcards.set(initialFlashcards);
-    masterSessionCards.set(initialFlashcards);
-    timerActive.set(true);
-    showOnlyFailed.set(false);
-    isFilteredViewActive.set(false);
-  } else {
-    resetStudyState();
+  // Restaurar stats si existen
+  if (savedProgress?.studyStats) {
+    studyStats.set(savedProgress.studyStats);
   }
+
+if (!review) {
+  if (savedProgress) {
+    currentIndex.set(savedProgress.currentIndex);
+    correctAnswers.set(savedProgress.correctAnswers);
+    incorrectAnswers.set(savedProgress.incorrectAnswers);
+    currentScore.set(savedProgress.currentScore);
+
+    if (savedProgress.sessionCompleted) {
+      sessionCompleted.set(true); // ✅ Restauramos correctamente
+    } else {
+      sessionCompleted.set(false);
+    }
+  } else {
+    // No hay progreso previo
+    currentIndex.set(0);
+    correctAnswers.set(0);
+    incorrectAnswers.set(0);
+    currentScore.set(0);
+    sessionCompleted.set(false);
+  }
+} else {
+  // review === true
+  currentIndex.set(savedProgress?.currentIndex ?? 0);
+  correctAnswers.set(savedProgress?.correctAnswers ?? 0);
+  incorrectAnswers.set(savedProgress?.incorrectAnswers ?? 0);
+  currentScore.set(savedProgress?.currentScore ?? 0);
+  sessionCompleted.set(savedProgress?.sessionCompleted ?? false);
+}
+
+  // Estado global final
+  sessionStartTime.set(Date.now());
+  currentFlashcards.set(initialFlashcards);
+  masterSessionCards.set(initialFlashcards);
+  timerActive.set(true);
+  showOnlyFailed.set(false);
+  isFilteredViewActive.set(false);
+  currentIndex.update(n => n);
 }
 
 // Function to update flip state of a card
@@ -179,8 +190,23 @@ export function flipCard(cardId: string, flippedState: boolean) {
 export function markAnswer(isCorrect: boolean) {
 	const current = get(currentCard);
 
+
+  if (isCorrect && current  && current.failedInSession) {
+    currentFlashcards.update((cards) =>
+      cards.map((c) =>
+        c.id === current.id
+          ? { ...c, failedInSession: false }
+          : c
+      )
+    );
+  }
 	// ✅ Protección inmediata
-	if (!current || get(sessionCompleted) || current.answeredInSession) return;
+	if (!current || get(sessionCompleted)) return;
+  console.log('Current card:', current);
+  if (current.answeredInSession && !current.failedInSession) {
+    console.warn('Card already answered, skipping.');
+    return;
+  }
 
 	// 🟦 Actualizar currentFlashcards
 	currentFlashcards.update(cards => {
@@ -270,6 +296,8 @@ export function markAnswer(isCorrect: boolean) {
 			});
 		}
 	}
+
+  saveProgressForCurrentCollection();
 }
 
 
@@ -334,11 +362,12 @@ export function filterFailedCards() {
   const allCardsWithUpToDateState = collection.flashcards.map(originalCard => {
     const sessionState = currentSessionCardStates.get(originalCard.id);
     return {
-      ...originalCard, // base data from collection
-      flipped: false, // always reset flip
+      ...originalCard,
+      flipped: false,
       timesViewed: sessionState?.timesViewed || originalCard.timesViewed || 0,
       timesCorrect: sessionState?.timesCorrect || originalCard.timesCorrect || 0,
-      failedInSession: sessionState?.failedInSession || false, // Crucially use the up-to-date failedInSession
+      failedInSession: sessionState?.failedInSession || false,
+      answeredInSession: sessionState?.answeredInSession ?? false
     };
   });
 
@@ -358,23 +387,20 @@ export function filterFailedCards() {
       return;
     }
   }
-  sessionCompleted.set(false); // Reset on filtering
 }
 
 export function showAllCards() {
-  const sessionCards = get(masterSessionCards);
-  if (!sessionCards || sessionCards.length === 0) return;
-
-  const restored = sessionCards.map(card => ({
-    ...card,
-    flipped: false // siempre restablecer
-  }));
-
-  currentFlashcards.set(restored);
-  currentIndex.set(0);
+  currentFlashcards.set(get(masterSessionCards));
   isFilteredViewActive.set(false);
-  isUnansweredOnly.set(false);
-  // No reiniciamos la sesión si ya fue completada
+  showOnlyFailed.set(false);
+  
+  // ❗️ Solo restablecer si la sesión realmente no está completa
+  const allAnswered = get(currentFlashcards).every(fc => fc.answeredInSession);
+  const allCorrect = get(currentFlashcards).every(fc => fc.answeredInSession && !fc.failedInSession);
+  
+  if (!allAnswered || !allCorrect) {
+    sessionCompleted.set(false);
+  }
 }
 
 // Reset store to initial state
@@ -444,7 +470,19 @@ export function incrementTimesViewedForCurrentCard() {
   });
 }
 
-
+export function incrementTimesViewedFor(cardId: string) {
+	currentFlashcards.update(cards => {
+		const updated = [...cards];
+		const idx = updated.findIndex(c => c.id === cardId);
+		if (idx !== -1) {
+			updated[idx] = {
+				...updated[idx],
+				timesViewed: (updated[idx].timesViewed || 0) + 1
+			};
+		}
+		return updated;
+	});
+}
 
 export function setUnansweredOnlyView(active: boolean) {
 	isUnansweredOnly.set(active);
@@ -486,4 +524,40 @@ export function filterUnansweredCards() {
 		// Si no hay tarjetas sin responder, mostrar todo
 		showAllCards();
 	}
+}
+
+
+
+export function restartSessionForCurrentCollection(collectionId: string) {
+  const saved = loadStudyProgress(collectionId);
+  if (saved) {
+    clearStudyProgress(collectionId);
+  }
+
+  // Reset valores de sesión solo para esta colección
+  currentIndex.set(0);
+  correctAnswers.set(0);
+  incorrectAnswers.set(0);
+  currentScore.set(0);
+  sessionCompleted.set(false);
+  studyStats.set({
+    totalViewed: 0,
+    totalCorrect: 0,
+    totalIncorrect: 0,
+    correctStreak: 0,
+    longestStreak: 0,
+    difficultAnswered: 0,
+    badgesUnlocked: []
+  });
+
+  const flashcards = get(masterSessionCards).map(fc => ({
+    ...fc,
+    flipped: false,
+    failedInSession: false,
+    answeredInSession: false
+  }));
+
+  currentFlashcards.set(flashcards);
+  sessionStartTime.set(Date.now());
+  currentIndex.update(n => n); // fuerza actualización visual
 }
