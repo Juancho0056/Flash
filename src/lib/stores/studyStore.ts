@@ -156,22 +156,30 @@ export async function loadCollectionForStudy(collectionData: CollectionWithFlash
   masterSessionCards.set(initialFlashcards);
 
   if (review) {
-    // In Review Mode: Reset session-specific stats, keep learned card states.
-    correctAnswers.set(0);
-    incorrectAnswers.set(0);
-    currentScore.set(0);
-    studyStats.set({ // Reset to initial study stats
-      totalViewed: 0,
-      totalCorrect: 0,
-      totalIncorrect: 0,
-      correctStreak: 0,
-      longestStreak: 0,
-      difficultAnswered: 0,
-      badgesUnlocked: [] // Badges probably should not be re-unlocked in review
-    });
-    currentIndex.set(0); // Start from the beginning
-    sessionCompleted.set(false); // A review session is a new, uncompleted session
-    sessionStartTime.set(Date.now()); // Fresh start time for review session
+    // In Review Mode: Load mastery stats from savedProgress, reset session-specifics.
+    if (savedProgress) {
+      correctAnswers.set(savedProgress.correctAnswers);
+      incorrectAnswers.set(savedProgress.incorrectAnswers);
+      currentScore.set(savedProgress.currentScore);
+      studyStats.set(savedProgress.studyStats); // These reflect mastery.
+    } else {
+      // Fallback if no savedProgress, though unlikely for a mastered session.
+      correctAnswers.set(0);
+      incorrectAnswers.set(0);
+      currentScore.set(0);
+      studyStats.set({
+        totalViewed: 0, // Or consider loading from initialFlashcards if they reflect views
+        totalCorrect: 0,
+        totalIncorrect: 0,
+        correctStreak: 0,
+        longestStreak: 0,
+        difficultAnswered: 0,
+        badgesUnlocked: [] // Keep badges if they were part of savedProgress.studyStats
+      });
+    }
+    currentIndex.set(0); // Start review from the beginning.
+    sessionCompleted.set(true); // Session being reviewed was completed.
+    sessionStartTime.set(Date.now()); // New start time for the review itself.
   } else {
     // Not in Review Mode: Load saved progress or set defaults.
     if (savedProgress) {
@@ -227,8 +235,16 @@ export async function markAnswer(isCorrect: boolean) {
 	const current = get(currentCard);
 
 	// ✅ Protección inmediata
-	if (!current || (get(sessionCompleted) && !get(isFilteredViewActive))) return; // Allow marking answers if session is completed BUT a filter is active
-  // If no filter active and session is completed, then no more marking.
+	// If no current card, return.
+	// If the session (current view) is completed, AND we are not in a filtered view,
+	// AND the current card is NOT marked as failed (i.e., it's perfectly answered), THEN return.
+	// Otherwise (e.g., session completed, but current card IS failed), proceed.
+	if (!current || (get(sessionCompleted) && !get(isFilteredViewActive) && !current.failedInSession)) {
+		return;
+	}
+
+  // Optional: This specific check can remain for logging or be removed if the main guard is considered sufficient.
+  // It primarily prevents re-processing a card that is already correctly answered.
   console.log('Current card:', current);
   if (current.answeredInSession && !current.failedInSession) {
     console.warn('Card already answered, skipping.');
@@ -294,8 +310,14 @@ export async function markAnswer(isCorrect: boolean) {
 
 	// 🧠 Actualizar contadores numéricos y otorgar insignias relacionadas
 	if (isCorrect) {
-		correctAnswers.update(n => n + 1);
-		currentScore.update(s => s + POINTS_PER_CORRECT_ANSWER);
+		// current is from get(currentCard) - reflects state *before* this answer
+		// Award points only if it's the first time correct OR correcting a failed card.
+		const awardPointsForThisCard = !current.answeredInSession || current.failedInSession;
+
+		if (awardPointsForThisCard) {
+			currentScore.update(s => s + POINTS_PER_CORRECT_ANSWER);
+		}
+		correctAnswers.update(n => n + 1); // This counts any "correct" click.
 		incrementTotalCorrectAnswersAllTime(); // Increment global all-time correct answers
 
 		// Award badges based on updated stats
@@ -328,8 +350,12 @@ export async function markAnswer(isCorrect: boolean) {
 
 		// Check for collection mastery (only if this is a full, non-review session view)
 		const isFullSessionView = !get(isFilteredViewActive) && !get(isReviewMode);
-		// Also, ensure we are comparing against masterSessionCards.length for the condition
-		if (isFullSessionView && get(incorrectAnswers) === 0 && get(correctAnswers) === get(masterSessionCards).length) {
+		// New condition: all cards in masterSessionCards must be answered and not failed.
+		const allMasterCardsPerfectlyAnswered = get(masterSessionCards).every(
+			(card) => card.answeredInSession && !card.failedInSession
+		);
+
+		if (isFullSessionView && allMasterCardsPerfectlyAnswered) {
 			awardBadge(BadgeId.COLLECTION_MASTERED);
 			const collection = get(activeCollection);
 			if (collection) {
@@ -658,6 +684,7 @@ export async function restartSessionForCurrentCollection(collectionId: string): 
   isFilteredViewActive.set(false);
   isUnansweredOnly.set(false);
   isReviewMode.set(false);
+  saveReviewModeFor(collectionId, false); // Persist review mode change
 
   studyStats.set({
     totalViewed: 0,
