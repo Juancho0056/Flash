@@ -1,169 +1,160 @@
 // src/lib/services/sm2Service.ts
 
-export interface SM2Data {
+/**
+ * Represents the SM-2 data structure for a flashcard associated with a user,
+ * as returned by the API. Aligns with the UserFlashcardSM2 Prisma model.
+ */
+export interface UserFlashcardSM2Record {
+    id: string;                     // Server-generated ID
+    userId: string;                 // Server-assigned or validated user ID
+    flashcardId: string;
     easinessFactor: number;
     repetitions: number;
-    interval: number; // in days
-    dueDate: number; // timestamp for next review
-    lastReviewed: number; // timestamp of the last review
-    collectionId: string;
+    intervalDays: number;           // Interval in days
+    dueDate: string;                // ISO DateTime string from server
+    lastReviewed: string;           // ISO DateTime string from server
+    originalCollectionId: string;   // Denormalized from Flashcard's collection
+    collectionName?: string;        // Denormalized from Flashcard's collection
+    createdAt: string;              // ISO DateTime string
+    updatedAt: string;              // ISO DateTime string
+}
+
+/**
+ * Payload for updating SM-2 data via the API.
+ */
+export interface UpdateSM2Payload {
+    flashcardId: string;
+    collectionId: string;         // originalCollectionId for the SM-2 record
     collectionName?: string;
+    quality: number;              // User's recall quality (0-5)
 }
 
-const BASE_SM2_STORAGE_KEY = 'sm2Progress';
-const DEFAULT_EF = 2.5;
-
-function getSM2StorageKey(flashcardId: string, userId?: string): string {
-    return userId ? `${BASE_SM2_STORAGE_KEY}_${userId}_${flashcardId}` : `${BASE_SM2_STORAGE_KEY}_guest_${flashcardId}`;
-}
-
-export function getSM2Data(flashcardId: string, userId?: string): SM2Data | null {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
-
-    const key = getSM2StorageKey(flashcardId, userId);
-    const jsonData = localStorage.getItem(key);
-    if (jsonData) {
-        try {
-            return JSON.parse(jsonData) as SM2Data;
-        } catch (e) {
-            console.error(`Error parsing SM2 data for key ${key}:`, e);
-            localStorage.removeItem(key); // Clear corrupted data
+/**
+ * Fetches a specific SM-2 record for a flashcard.
+ * Assumes userId is inferred by the server from the session.
+ * @param flashcardId The ID of the flashcard.
+ * @returns The SM-2 record or null if not found or an error occurs.
+ */
+export async function getUserFlashcardSM2Record(flashcardId: string): Promise<UserFlashcardSM2Record | null> {
+    if (typeof window === 'undefined') {
+        console.warn('getUserFlashcardSM2Record called in non-browser context.');
+        return null;
+    }
+    try {
+        const response = await fetch(`/api/user-flashcard-sm2?flashcardId=${flashcardId}`);
+        if (response.status === 404) {
+            // console.log(`No SM2 data found on server for flashcard ${flashcardId}.`);
+            return null; // Common case: no SM-2 data saved yet for this card
+        }
+        if (!response.ok) {
+            console.error(`Failed to get SM2 data for card ${flashcardId}:`, response.status, await response.text());
             return null;
         }
+        return await response.json() as UserFlashcardSM2Record;
+    } catch (error) {
+        console.error(`Error getting SM2 data for card ${flashcardId}:`, error);
+        return null;
     }
-    return null;
 }
 
-function saveSM2Data(flashcardId: string, data: SM2Data, userId?: string): void {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
-    const key = getSM2StorageKey(flashcardId, userId);
+/**
+ * Updates SM-2 data for a flashcard by sending recall quality to the server.
+ * The server will perform SM-2 calculations and persist the new data.
+ * Assumes userId is inferred by the server from the session.
+ * @param payload The data needed to update SM-2 stats, including flashcardId, collection context, and quality.
+ * @returns The updated SM-2 record from the server or null if an error occurs.
+ */
+export async function updateSM2Data(payload: UpdateSM2Payload): Promise<UserFlashcardSM2Record | null> {
+    if (typeof window === 'undefined') {
+        console.warn('updateSM2Data called in non-browser context.');
+        return null;
+    }
     try {
-        localStorage.setItem(key, JSON.stringify(data));
-    } catch (e) {
-        console.error(`Error saving SM2 data for key ${key}:`, e);
-    }
-}
-
-/**
- * Calculates new SM-2 parameters.
- * @param currentData The current SM2Data. If null or for a new card, default values are used.
- * @param quality The quality of response (0-5).
- *                     5: Perfect response
- *                     4: Correct response after some hesitation
- *                     3: Correct response with difficulty
- *                     2: Incorrect response; where the correct one seemed easy to recall
- *                     1: Incorrect response; the correct answer given comes to mind
- *                     0: Complete blackout.
- * @returns The new SM2Data.
- */
-export function calculateSM2Params(currentData: SM2Data | null, quality: number): SM2Data {
-    let { easinessFactor, repetitions, interval } = currentData || {
-        easinessFactor: DEFAULT_EF,
-        repetitions: 0,
-        interval: 0, // Will be set to 1 on first correct repetition
-    };
-
-    if (quality < 0 || quality > 5) {
-        throw new Error('Quality must be between 0 and 5.');
-    }
-
-    // 1. Update Easiness Factor
-    easinessFactor = Math.max(1.3, easinessFactor - 0.8 + 0.28 * quality - 0.02 * quality * quality);
-
-    // 2. Update repetitions and interval
-    if (quality < 3) { // Incorrect response
-        repetitions = 0; // Reset repetitions
-        interval = 1;    // Next review in 1 day
-    } else { // Correct response
-        repetitions += 1;
-        if (repetitions === 1) {
-            interval = 1;
-        } else if (repetitions === 2) {
-            interval = 6;
-        } else {
-            interval = Math.ceil(interval * easinessFactor);
+        const response = await fetch('/api/user-flashcard-sm2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+            console.error('Failed to update SM2 data for card:', payload.flashcardId, response.status, await response.text());
+            return null;
         }
+        return await response.json() as UserFlashcardSM2Record;
+    } catch (error) {
+        console.error('Error updating SM2 data for card:', payload.flashcardId, error);
+        return null;
     }
-
-    const now = Date.now();
-    const oneDayInMs = 24 * 60 * 60 * 1000;
-    const dueDate = now + interval * oneDayInMs;
-
-    return {
-        easinessFactor,
-        repetitions,
-        interval,
-        dueDate,
-        lastReviewed: now,
-    };
 }
 
 /**
- * Updates SM-2 data for a flashcard based on recall quality.
- * Retrieves current data, calculates new params, and saves it.
+ * Fetches all SM-2 records for the current user from the server.
+ * Assumes userId is inferred by the server from the session.
+ * @returns An array of SM-2 records.
  */
-export function updateSM2Data(flashcardId: string, collectionId: string, collectionName: string | undefined, quality: number, userId?: string): SM2Data {
-    const currentData = getSM2Data(flashcardId, userId);
-    const newData = calculateSM2Params(currentData, quality);
-
-    const dataToSave: SM2Data = {
-        ...newData,
-        collectionId: collectionId,
-        collectionName: collectionName
-    };
-    saveSM2Data(flashcardId, dataToSave, userId);
-    // console.log(`SM2 data updated for ${flashcardId} (user: ${userId || 'guest'}):`, dataToSave);
-    return dataToSave;
-}
-
-/**
- * Gets all SM2 data for a user. Potentially slow, use with caution.
- * This is a simplified example and might not be efficient for many cards.
- */
-export function getAllSM2DataForUser(userId?: string): Array<{flashcardId: string, data: SM2Data}> {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return [];
-
-    const results: Array<{flashcardId: string, data: SM2Data}> = [];
-    const prefix = userId ? `${BASE_SM2_STORAGE_KEY}_${userId}_` : `${BASE_SM2_STORAGE_KEY}_guest_`;
-
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(prefix)) {
-            const flashcardId = key.substring(prefix.length);
-            const data = getSM2Data(flashcardId, userId); // Use existing getter for parsing
-            if (data) {
-                results.push({ flashcardId, data });
-            }
+export async function getAllUserFlashcardSM2Records(): Promise<UserFlashcardSM2Record[]> {
+    if (typeof window === 'undefined') {
+        console.warn('getAllUserFlashcardSM2Records called in non-browser context.');
+        return [];
+    }
+    try {
+        const response = await fetch('/api/user-flashcard-sm2/all');
+        if (!response.ok) {
+            console.error('Failed to get all SM2 records for user:', response.status, await response.text());
+            return [];
         }
+        return await response.json() as UserFlashcardSM2Record[];
+    } catch (error) {
+        console.error('Error getting all SM2 records for user:', error);
+        return [];
     }
-    return results;
 }
 
 /**
- * Clears SM2 data for a specific flashcard and user.
+ * Clears the SM-2 record for a specific flashcard for the current user on the server.
+ * Assumes userId is inferred by the server from the session.
+ * @param flashcardId The ID of the flashcard whose SM-2 record should be cleared.
+ * @returns True if successful, false otherwise.
  */
-export function clearSM2Data(flashcardId: string, userId?: string): void {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
-    const key = getSM2StorageKey(flashcardId, userId);
-    localStorage.removeItem(key);
+export async function clearUserFlashcardSM2Record(flashcardId: string): Promise<boolean> {
+    if (typeof window === 'undefined') {
+        console.warn('clearUserFlashcardSM2Record called in non-browser context.');
+        return false;
+    }
+    try {
+        const response = await fetch(`/api/user-flashcard-sm2?flashcardId=${flashcardId}`, { method: 'DELETE' });
+        if (!response.ok) {
+            console.error(`Failed to clear SM2 record for card ${flashcardId}:`, response.status, await response.text());
+            return false;
+        }
+        // console.log(`SM2 record for card ${flashcardId} cleared successfully.`);
+        return true;
+    } catch (error) {
+        console.error('Error clearing SM2 record:', error);
+        return false;
+    }
 }
 
 /**
- * Clears ALL SM2 data for a specific user or guest.
+ * Clears ALL SM-2 records for the current user on the server (FOR TESTING/DEVELOPMENT).
+ * Assumes userId is inferred by the server from the session.
  * USE WITH CAUTION.
+ * @returns True if successful, false otherwise.
  */
-export function clearAllSM2DataForUser_TESTONLY(userId?: string): void {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
-
-    const prefix = userId ? `${BASE_SM2_STORAGE_KEY}_${userId}_` : `${BASE_SM2_STORAGE_KEY}_guest_`;
-    const keysToRemove: string[] = [];
-
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(prefix)) {
-            keysToRemove.push(key);
-        }
+export async function clearAllUserFlashcardSM2Records_TESTONLY(): Promise<boolean> {
+    if (typeof window === 'undefined') {
+        console.warn('clearAllUserFlashcardSM2Records_TESTONLY called in non-browser context.');
+        return false;
     }
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-    console.log(`Cleared all SM2 data for user: ${userId || 'guest'} (prefix: ${prefix})`);
+    try {
+        const response = await fetch('/api/user-flashcard-sm2/all', { method: 'DELETE' });
+        if (!response.ok) {
+            console.error('Failed to clear all SM2 records for user:', response.status, await response.text());
+            return false;
+        }
+        // console.log('All SM2 records for current user cleared successfully.');
+        return true;
+    } catch (error) {
+        console.error('Error clearing all SM2 records for user:', error);
+        return false;
+    }
 }

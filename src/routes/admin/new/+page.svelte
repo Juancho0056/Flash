@@ -17,6 +17,9 @@
 	let isEditing = false;
 	let flashcardIdToEdit: string | null = null;
 
+	let newCollectionCefrLevel: string | undefined = undefined; // For the CEFR level select
+	const cefrLevels = ["A1", "A2", "B1", "B2", "C1", "C2"]; // Available CEFR levels for the dropdown
+
 	// Remove old message variables
 	// let errorMessage: string | null = null;
 	// let successMessage: string | null = null;
@@ -154,10 +157,14 @@
 		isSubmittingCollection = true;
 		// errorMessage = null;
 		try {
+			const payload = {
+				name: newCollectionName.trim(),
+				cefrLevel: newCollectionCefrLevel // newCollectionCefrLevel will be undefined if not selected
+			};
 			const response = await fetch('/api/collections', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ name: newCollectionName.trim() })
+				body: JSON.stringify(payload)
 			});
 			const responseBody = await response.json();
 			if (!response.ok) {
@@ -168,6 +175,7 @@
 			collections = [...collections, newCollection].sort((a, b) => a.name.localeCompare(b.name));
 			selectedCollectionId = newCollection.id;
 			newCollectionName = '';
+			newCollectionCefrLevel = undefined; // Reset CEFR level selector
 			isCreatingCollection = false;
 			toast.success(`Collection "${newCollection.name}" created and selected.`);
 		} catch (err: any) {
@@ -263,7 +271,9 @@
 					>
 						<option value={undefined}>-- No Collection --</option>
 						{#each collections as collection (collection.id)}
-							<option value={collection.id}>{collection.name}</option>
+							<option value={collection.id}>
+								{collection.name}{collection.cefrLevel ? ` (${collection.cefrLevel})` : ''}
+							</option>
 						{/each}
 					</select>
 					<button
@@ -296,6 +306,20 @@
 							>
 								{isSubmittingCollection ? 'Creating...' : 'Create'}
 							</button>
+						</div>
+						<!-- CEFR Level Select for New Collection -->
+						<div class="mt-2">
+							<label for="newCollectionCefrLevel" class="mb-1 block text-sm font-medium text-gray-700">CEFR Level (Optional):</label>
+							<select
+								id="newCollectionCefrLevel"
+								bind:value={newCollectionCefrLevel}
+								class="block w-full rounded-md border border-gray-300 p-2 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+							>
+								<option value={undefined}>-- Select Level --</option>
+								{#each cefrLevels as level (level)}
+									<option value={level}>{level}</option>
+								{/each}
+							</select>
 						</div>
 					</div>
 				{/if}

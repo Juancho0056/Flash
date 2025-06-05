@@ -30,15 +30,25 @@ export const GET: RequestHandler = async () => {
 // POST /api/collections - Create a new collection
 export const POST: RequestHandler = async ({ request }) => {
 	try {
-		const body: { name?: string } = await request.json();
-		const { name } = body;
+		const body: { name?: string; cefrLevel?: string } = await request.json();
+		const { name, cefrLevel } = body;
 
 		if (!name) {
 			throw error(400, 'Collection name is required');
 		}
 
+		const createData: { name: string; cefrLevel?: string } = {
+			name: name,
+		};
+
+		if (cefrLevel) {
+			// Basic validation could be done here, e.g. check if cefrLevel is one of "A1", "A2", etc.
+			// For now, assuming client sends valid string or Prisma handles enum conversion/error.
+			createData.cefrLevel = cefrLevel;
+		}
+
 		const newCollection = await prisma.collection.create({
-			data: { name },
+			data: createData,
 		});
 
 		return json(newCollection, { status: 201 });
