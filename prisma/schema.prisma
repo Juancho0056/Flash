@@ -9,11 +9,22 @@ generator client {
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
+enum CefrLevel {
+  A1
+  A2
+  B1
+  B2
+  C1
+  C2
+}
+
 model Collection {
   id         String      @id @default(uuid())
   name       String      @unique
   flashcards Flashcard[]
   createdAt  DateTime    @default(now())
+  // Add the new field below
+  cefrLevel  CefrLevel?
 }
 
 model Flashcard {

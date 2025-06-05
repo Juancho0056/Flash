@@ -6,6 +6,8 @@ export interface SM2Data {
     interval: number; // in days
     dueDate: number; // timestamp for next review
     lastReviewed: number; // timestamp of the last review
+    collectionId: string;
+    collectionName?: string;
 }
 
 const BASE_SM2_STORAGE_KEY = 'sm2Progress';
@@ -100,12 +102,18 @@ export function calculateSM2Params(currentData: SM2Data | null, quality: number)
  * Updates SM-2 data for a flashcard based on recall quality.
  * Retrieves current data, calculates new params, and saves it.
  */
-export function updateSM2Data(flashcardId: string, quality: number, userId?: string): SM2Data {
+export function updateSM2Data(flashcardId: string, collectionId: string, collectionName: string | undefined, quality: number, userId?: string): SM2Data {
     const currentData = getSM2Data(flashcardId, userId);
     const newData = calculateSM2Params(currentData, quality);
-    saveSM2Data(flashcardId, newData, userId);
-    // console.log(`SM2 data updated for ${flashcardId} (user: ${userId || 'guest'}):`, newData);
-    return newData;
+
+    const dataToSave: SM2Data = {
+        ...newData,
+        collectionId: collectionId,
+        collectionName: collectionName
+    };
+    saveSM2Data(flashcardId, dataToSave, userId);
+    // console.log(`SM2 data updated for ${flashcardId} (user: ${userId || 'guest'}):`, dataToSave);
+    return dataToSave;
 }
 
 /**
