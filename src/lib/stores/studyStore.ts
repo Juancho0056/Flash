@@ -8,11 +8,17 @@ import { loadStudyProgress, saveStudyProgress, type StudyProgress } from '$lib/s
 import { updateLastStudiedTimestamp } from '$lib/services/collectionMetaService';
 import { saveSessionToHistory } from '$lib/services/studyHistoryService';
 import { clearStudyProgress } from '$lib/services/progressService';
+import { updateSM2Data, getSM2Data } from '$lib/services/sm2Service';
+
+// Constants for automatic difficult card detection
+const INCORRECT_THRESHOLD_SESSION = 3; // Times incorrect in current session to mark as difficult
+const EF_DIFFICULTY_THRESHOLD = 1.8;   // SM-2 Easiness Factor threshold
 
 export interface FlashcardStudy extends PrismaFlashcard {
   flipped?: boolean;
   failedInSession?: boolean;
   answeredInSession?: boolean; // ✅ NUEVO
+  incorrectCountInSession?: number;
 }
 
 export interface CollectionWithFlashcards extends Collection {
@@ -133,9 +139,10 @@ export function loadCollectionForStudy(collectionData: CollectionWithFlashcards 
       flipped: false,
       failedInSession: savedState?.failedInSession ?? false,
       answeredInSession: savedState?.answeredInSession ?? false,
-      isDifficult: fc.isDifficult ?? false,
+      isDifficult: fc.isDifficult ?? false, // Keep existing isDifficult loading
       timesViewed: fc.timesViewed ?? 0,
-      timesCorrect: fc.timesCorrect ?? 0
+      timesCorrect: fc.timesCorrect ?? 0,
+      incorrectCountInSession: 0, // Initialize new counter
     };
   });
 
@@ -232,10 +239,16 @@ export function markAnswer(isCorrect: boolean) {
 		if (!card || card.answeredInSession) return cards;
 
 		const updated = [...cards];
+		const cardBeingUpdated = cards[idx];
+		let currentSessionIncorrects = cardBeingUpdated.incorrectCountInSession || 0;
+		if (!isCorrect) {
+			currentSessionIncorrects++;
+		}
 		updated[idx] = {
-			...card,
+			...cardBeingUpdated,
 			answeredInSession: true,
-			failedInSession: isCorrect ? false : true
+			failedInSession: !isCorrect,
+			incorrectCountInSession: currentSessionIncorrects
 		};
 		return updated;
 	});
@@ -246,10 +259,16 @@ export function markAnswer(isCorrect: boolean) {
 		if (idx === -1 || cards[idx].answeredInSession) return cards;
 
 		const updated = [...cards];
+		const cardBeingUpdated = cards[idx];
+		let currentSessionIncorrects = cardBeingUpdated.incorrectCountInSession || 0;
+		if (!isCorrect) {
+			currentSessionIncorrects++;
+		}
 		updated[idx] = {
-			...cards[idx],
+			...cardBeingUpdated,
 			answeredInSession: true,
-			failedInSession: isCorrect ? false : true
+			failedInSession: !isCorrect,
+			incorrectCountInSession: currentSessionIncorrects
 		};
 		return updated;
 	});
@@ -319,7 +338,82 @@ export function markAnswer(isCorrect: boolean) {
 		_saveCompletedSessionToHistory(); // Call internal function
 	}
 
+	// SM-2 Logic Integration
+	const userId = get(page).data.user?.id; // Get userId
+	const cardId = get(currentCard)?.id;
+	const collectionId = get(activeCollection)?.id;
+	const collectionName = get(activeCollection)?.name; // Get collection name
+	const quality = isCorrect ? 5 : 2; // Simplified mapping for SM-2
+
+	if (cardId && collectionId && !get(isReviewMode)) { // Added collectionId check. Only update SM-2 stats if not in review mode
+		try {
+			updateSM2Data(cardId, collectionId, collectionName, quality, userId); // Pass collectionId and collectionName
+		} catch (e) {
+			console.error('Failed to update SM-2 data:', e);
+		}
+	}
+
+	// Automatic Difficulty Detection Logic
+	const currentCardDetails = get(currentCard); // Get the latest state of the current card
+	if (currentCardDetails && !currentCardDetails.isDifficult) { // Check if not already marked difficult
+		const sm2Data = getSM2Data(currentCardDetails.id, userId); // Fetch its latest SM-2 data
+		let autoMarkDifficult = false;
+
+		if (currentCardDetails.incorrectCountInSession && currentCardDetails.incorrectCountInSession >= INCORRECT_THRESHOLD_SESSION) {
+			autoMarkDifficult = true;
+			console.log(`Card ${currentCardDetails.id} flagged difficult due to session incorrect count: ${currentCardDetails.incorrectCountInSession}.`);
+		}
+
+		if (sm2Data && sm2Data.easinessFactor < EF_DIFFICULTY_THRESHOLD) {
+			autoMarkDifficult = true;
+			console.log(`Card ${currentCardDetails.id} flagged difficult due to low EF: ${sm2Data.easinessFactor}.`);
+		}
+
+		if (autoMarkDifficult) {
+			// Update in currentFlashcards
+			currentFlashcards.update(cards => {
+				const idx = cards.findIndex(c => c.id === currentCardDetails.id);
+				if (idx !== -1) cards[idx].isDifficult = true;
+				return cards;
+			});
+			// Update in masterSessionCards
+			masterSessionCards.update(cards => {
+				const idx = cards.findIndex(c => c.id === currentCardDetails.id);
+				if (idx !== -1) cards[idx].isDifficult = true;
+				return cards;
+			});
+
+			_persistDifficultStatus(currentCardDetails.id, true);
+		}
+	}
+
   saveProgressForCurrentCollection(); // Save resumable progress
+}
+
+async function _persistDifficultStatus(cardId: string, makeDifficult: boolean): Promise<void> {
+	// Note: This function does not take userId because the API endpoint /api/flashcards/:id
+	// for PUT should implicitly handle user authorization if needed, or the card is global.
+	// If card difficulty is per-user, the API and DB schema would need to reflect that,
+	// and userId would be needed here. Assuming current API sets isDifficult globally on the card.
+	try {
+		const response = await fetch(`/api/flashcards/${cardId}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ isDifficult: makeDifficult })
+		});
+
+		if (!response.ok) {
+			console.error(`API error setting difficult status for card ${cardId}: ${response.status}`);
+			// Optionally, revert optimistic updates if any were made before calling this,
+			// though for auto-detection, we might just log and move on.
+		} else {
+			console.log(`Card ${cardId} successfully marked as ${makeDifficult ? 'difficult' : 'not difficult'} via API.`);
+			// If globalUserStats or another store caches card details including 'isDifficult',
+			// it might need updating here. For now, this just calls the API.
+		}
+	} catch (err) {
+		console.error(`Network error setting difficult status for card ${cardId}:`, err);
+	}
 }
 
 // Internal function to save a completed session (full or filtered) to history
