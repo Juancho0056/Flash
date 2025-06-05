@@ -54,7 +54,7 @@
 				Sign in to your account
 			</h2>
 		</div>
-		<form class="mt-8 space-y-6" on:submit|preventDefault={handleSubmit} use:enhance>
+		<form class="mt-8 space-y-6" on:submit|preventDefault={handleSubmit} method="POST" use:enhance>
 			<input type="hidden" name="remember" value="true" />
 			<div class="-space-y-px rounded-md shadow-sm">
 				<div>
