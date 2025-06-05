@@ -306,24 +306,53 @@ export function markAnswer(isCorrect: boolean) {
 		}
 
 		// 🧾 Guardar historial
-		const collection = get(activeCollection);
-		if (collection) {
-			saveSessionToHistory({
-				collectionId: collection.id,
-				collectionName: collection.name,
-				timestamp: Date.now(),
-				totalCards: get(currentFlashcards).length,
-				correct: get(correctAnswers),
-				incorrect: get(incorrectAnswers),
-				score: get(currentScore),
-				streak: get(studyStats).correctStreak,
-				longestStreak: get(studyStats).longestStreak,
-				durationMs: Date.now() - get(sessionStartTime) // Define esto al iniciar la sesión
-			});
-		}
+		_saveCompletedSessionToHistory(); // Call internal function
 	}
 
-  saveProgressForCurrentCollection();
+  saveProgressForCurrentCollection(); // Save resumable progress
+}
+
+// Internal function to save a completed session (full or filtered) to history
+function _saveCompletedSessionToHistory() {
+	const collection = get(activeCollection);
+	if (!collection) return;
+
+	const sessionTypeVal: 'full' | 'failed_only' | 'unanswered_only' | 'review' = get(isReviewMode)
+		? 'review'
+		: get(isFilteredViewActive)
+		? get(isUnansweredOnly)
+			? 'unanswered_only'
+			: 'failed_only'
+		: 'full';
+
+	let statusVal: 'completed' | 'mastered' = 'completed';
+	if (
+		sessionTypeVal === 'full' && !get(isReviewMode) && // Mastery only for full, non-review sessions
+		get(incorrectAnswers) === 0 &&
+		get(correctAnswers) === get(masterSessionCards).length
+	) {
+		statusVal = 'mastered';
+	}
+
+	// For 'completed' or 'mastered' sessions, totalCards studied is the length of the set just completed.
+	const cardsInThisSpecificSession = get(currentFlashcards).length;
+
+	saveSessionToHistory({ // This calls the imported service function
+		collectionId: collection.id,
+		collectionName: collection.name,
+		timestamp: Date.now(), // Session end time
+		sessionStartTime: get(sessionStartTime),
+		durationMs: Date.now() - get(sessionStartTime),
+		totalCards: cardsInThisSpecificSession, // Cards in this particular completed segment
+		originalCollectionSize: get(masterSessionCards).length,
+		correct: get(correctAnswers),
+		incorrect: get(incorrectAnswers),
+		score: get(currentScore),
+		streak: get(studyStats).correctStreak,
+		longestStreak: get(studyStats).longestStreak,
+		sessionType: sessionTypeVal,
+		status: statusVal
+	});
 }
 
 
@@ -494,39 +523,93 @@ export function incrementTimesViewedFor(cardId: string) {
 // 	isUnansweredOnly.set(active);
 // }
 
+// Helper to reset session scores and relevant studyStats for a sub-session (filtered views)
+function resetSubSessionStats(preserveLongestStreak: boolean = true) {
+	correctAnswers.set(0);
+	incorrectAnswers.set(0);
+	currentScore.set(0);
+	studyStats.update(stats => ({
+		...stats, // Keep existing badgesUnlocked
+		totalViewed: 0,
+		totalCorrect: 0,
+		totalIncorrect: 0,
+		correctStreak: 0,
+		longestStreak: preserveLongestStreak ? stats.longestStreak : 0,
+	}));
+	sessionStartTime.set(Date.now());
+}
+
 export function filterUnansweredCards() {
 	const allCards = get(masterSessionCards);
 	const unansweredCards = allCards.filter(card => !card.answeredInSession);
 
 	if (unansweredCards.length > 0) {
-		currentFlashcards.set(unansweredCards.map(fc => ({ ...fc, flipped: false }))); // Ensure cards are not flipped
+		resetSubSessionStats(true);
+		currentFlashcards.set(unansweredCards.map(fc => ({ ...fc, flipped: false })));
 		currentIndex.set(0);
 		isFilteredViewActive.set(true);
-		isUnansweredOnly.set(true); // Now this mode is active
-		sessionCompleted.set(false); // Studying unanswered means session is not "completed"
+		isUnansweredOnly.set(true);
+		sessionCompleted.set(false);
 	} else {
-		// No unanswered cards. If already in a filtered view, show all. Otherwise, do nothing.
     if (get(isFilteredViewActive)) {
 		  showAllCards();
     }
-    // Consider a toast message or similar if user tries to activate and there are none (handled in UI)
 	}
 }
 
+// Function to filter for failed cards
+export function filterFailedCards() {
+  const allCards = get(masterSessionCards);
+  const failedCards = allCards.filter(card => card.failedInSession);
 
+  if (failedCards.length > 0) {
+		resetSubSessionStats(true);
+    currentFlashcards.set(failedCards.map(fc => ({ ...fc, flipped: false })));
+    currentIndex.set(0);
+    isFilteredViewActive.set(true);
+    isUnansweredOnly.set(false);
+    sessionCompleted.set(false);
+  } else {
+    if (get(isFilteredViewActive)) {
+      showAllCards();
+    }
+  }
+}
 
+export function showAllCards() {
+  currentFlashcards.set(get(masterSessionCards).map(fc => ({ ...fc, flipped: false })));
+  isFilteredViewActive.set(false);
+  isUnansweredOnly.set(false);
+
+  const masterCards = get(masterSessionCards);
+  const allMasterCardsAnswered = masterCards.every(fc => fc.answeredInSession);
+
+  if (allMasterCardsAnswered) {
+		sessionCompleted.set(true);
+	} else {
+    sessionCompleted.set(false);
+  }
+}
+
+// This function is for a full reset of the entire collection's study state (e.g. "Study Again" from scratch)
 export function restartSessionForCurrentCollection(collectionId: string) {
-  const saved = loadStudyProgress(collectionId);
-  if (saved) {
-    clearStudyProgress(collectionId);
+  const currentActiveCollection = get(activeCollection);
+  if (!currentActiveCollection || currentActiveCollection.id !== collectionId) {
+    console.warn('Attempted to restart session for a collection that is not active or ID mismatch.');
+    return;
   }
 
-  // Reset valores de sesión solo para esta colección
+  clearStudyProgress(collectionId);
+
   currentIndex.set(0);
   correctAnswers.set(0);
   incorrectAnswers.set(0);
   currentScore.set(0);
   sessionCompleted.set(false);
+  isFilteredViewActive.set(false);
+  isUnansweredOnly.set(false);
+  isReviewMode.set(false);
+
   studyStats.set({
     totalViewed: 0,
     totalCorrect: 0,
@@ -537,14 +620,78 @@ export function restartSessionForCurrentCollection(collectionId: string) {
     badgesUnlocked: []
   });
 
-  const flashcards = get(masterSessionCards).map(fc => ({
+  const pristineFlashcards = currentActiveCollection.flashcards.map(fc => ({
     ...fc,
     flipped: false,
     failedInSession: false,
-    answeredInSession: false
+    answeredInSession: false,
   }));
 
-  currentFlashcards.set(flashcards);
+  masterSessionCards.set(pristineFlashcards);
+  currentFlashcards.set(pristineFlashcards);
   sessionStartTime.set(Date.now());
-  currentIndex.update(n => n); // fuerza actualización visual
+  currentIndex.update(n => n);
+}
+
+
+// Reset store to initial state (typically when navigating away or changing collections fundamentally)
+export function resetStudyState() {
+  currentFlashcards.set(initialStudyState.flashcards);
+  activeCollection.set(initialStudyState.activeCollection);
+  currentIndex.set(initialStudyState.currentIndex);
+  correctAnswers.set(initialStudyState.correctAnswers);
+  incorrectAnswers.set(initialStudyState.incorrectAnswers);
+  currentScore.set(initialStudyState.currentScore);
+  sessionCompleted.set(initialStudyState.sessionCompleted);
+  timerActive.set(initialStudyState.timerActive);
+  isFilteredViewActive.set(initialStudyState.isFilteredViewActive);
+  isUnansweredOnly.set(initialStudyState.isUnansweredOnly);
+  isReviewMode.set(initialStudyState.isReviewMode); // Also reset review mode
+  masterSessionCards.set([]); // Clear master session cards
+  sessionStartTime.set(Date.now()); // Reset start time
+  studyStats.set({ // Reset study stats to default
+    totalViewed: 0,
+    totalCorrect: 0,
+    totalIncorrect: 0,
+    correctStreak: 0,
+    longestStreak: 0,
+    difficultAnswered: 0,
+    badgesUnlocked: []
+  });
+}
+
+
+export function saveProgressForCurrentCollection(): void {
+	const collection = get(activeCollection);
+	if (!collection || get(isReviewMode)) { // Do not save progress if in review mode
+    // console.log('In review mode, progress not saved.');
+    return;
+  }
+
+	// Save state of ALL cards from masterSessionCards
+	const flashcardsToSaveState = get(masterSessionCards).map(fc => ({
+		id: fc.id,
+		failedInSession: fc.failedInSession || false, // Ensure defaults if undefined
+		answeredInSession: fc.answeredInSession || false // Ensure defaults if undefined
+	}));
+
+	const currentTimestamp = Date.now();
+
+	const progressToSave: StudyProgress = {
+		collectionId: collection.id,
+		currentIndex: get(currentIndex),
+		correctAnswers: get(correctAnswers),
+		incorrectAnswers: get(incorrectAnswers),
+		currentScore: get(currentScore),
+		sessionCompleted: get(sessionCompleted),
+		flashcardsState: flashcardsToSaveState, // Now uses master list
+		lastSavedTimestamp: currentTimestamp,
+		// lastReviewedIndex: get(currentIndex), // REMOVED
+		lastReviewedTimestamp: currentTimestamp,
+		sessionStartTime: get(sessionStartTime),
+		studyStats: get(studyStats)
+	};
+
+	saveStudyProgress(progressToSave);
+	updateLastStudiedTimestamp(collection.id, currentTimestamp);
 }

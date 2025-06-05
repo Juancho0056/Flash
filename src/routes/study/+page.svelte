@@ -45,6 +45,8 @@
 	import { awardBadge, BadgeId } from '$lib/services/badgeService';
 	import { afterUpdate } from 'svelte'; // Import afterUpdate for reactive updates
 	import { ttsSettings, updateTTSSettings } from '$lib/stores/ttsStore'; // Import TTS store and updater
+	import { sessionStartTime } from '$lib/stores/studyStore'; // Import sessionStartTime
+	import SessionTimer from '$lib/components/SessionTimer.svelte'; // Import SessionTimer
 
 	let hasShownPerfectBadgeMessage = false;
 	let showBadgeMessage = false;
@@ -518,15 +520,18 @@
 	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
 		<div class="study-area rounded-lg bg-white p-6 shadow-xl md:p-8">
 			<SessionStats />
-      <div class="my-4 flex items-center justify-end">
-        <label for="autoPlayToggle" class="mr-2 text-sm text-gray-700">Auto-speak cards:</label>
-        <input
-          type="checkbox"
-          id="autoPlayToggle"
-          bind:checked={autoPlayTTS}
-          on:change={handleAutoPlayChange}
-          class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-        />
+      <div class="my-2 flex items-center justify-between">
+        {#if $activeCollection && $currentCard} <SessionTimer startTime={$sessionStartTime} /> {/if}
+        <div class="flex items-center">
+          <label for="autoPlayToggle" class="mr-2 text-sm text-gray-700">Auto-speak cards:</label>
+          <input
+            type="checkbox"
+            id="autoPlayToggle"
+            bind:checked={autoPlayTTS}
+            on:change={handleAutoPlayChange}
+            class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+          />
+        </div>
       </div>
 			{#if allBadgesUnlocked}
 				<p class="mt-4 rounded-md bg-green-100 p-2 text-sm text-green-700">
