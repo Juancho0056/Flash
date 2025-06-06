@@ -71,3 +71,86 @@ To verify that the total accumulated score is correctly calculated and displayed
 ## Notes
 - Use browser developer tools if needed, but the primary verification is the visual display in the header.
 - If database access is available, cross-verify the `score` in `StudySessionRecord` for the user and collections to manually calculate the expected total score.
+
+
+## Part 2: UI/UX Responsiveness
+
+### Objective
+To verify that the application's global header and study page are responsive and provide an optimal user experience on various screen sizes, particularly mobile and tablet.
+
+### Prerequisites
+- Application running locally or on a test environment.
+- A user account with some collections and flashcards.
+- Browser developer tools for simulating different screen sizes.
+
+### Test Cases - Global Header
+
+#### Test Case GH1: Hamburger Menu Appearance (Mobile/Tablet)
+1.  **Action**: Open the application on a small screen (e.g., simulate iPhone width, iPad width).
+2.  **Verification**:
+    *   **Expected Result**: The standard horizontal navigation links should be hidden. A hamburger menu icon should be visible. The "Total Score" and user email should also likely be hidden within this menu or not shown in the compact header.
+
+#### Test Case GH2: Hamburger Menu Functionality
+1.  **Action**: On a small screen, tap the hamburger menu icon.
+2.  **Verification**:
+    *   **Expected Result**: A dropdown or slide-out menu should appear, containing navigation links (Home, History, Logout/Login, etc.) and potentially the "Total Score" and user email. Links should be easily tappable.
+3.  **Action**: Tap the "close" (X) icon or tap the hamburger icon again.
+4.  **Verification**:
+    *   **Expected Result**: The menu should close.
+
+#### Test Case GH3: Desktop Header Layout
+1.  **Action**: Open the application on a desktop screen size.
+2.  **Verification**:
+    *   **Expected Result**: The hamburger menu icon should be hidden. The standard horizontal navigation links, user email, and "Total Score" should be visible and correctly laid out.
+
+### Test Cases - Study Page (`/study`)
+
+#### Test Case SP1: Card Emphasis (Mobile)
+1.  **Action**: Navigate to the study page on a small screen. Start a study session.
+2.  **Verification**:
+    *   **Expected Result**: The flashcard (`Card` component) should be the most prominent element, occupying a significant portion of the screen (e.g., ~70-80% of viewport height as aimed for). Other elements should be secondary.
+
+#### Test Case SP2: Stats Visibility (Mobile)
+1.  **Action**: On the study page (mobile view), observe the session statistics area (Score, Streak).
+2.  **Verification**:
+    *   **Expected Result**: Full session stats should be hidden by default. A "View Session Progress" (or similar) button should be visible.
+3.  **Action**: Tap the "View Session Progress" button.
+4.  **Verification**:
+    *   **Expected Result**: The session statistics should become visible. The button text might change to "Hide Session Progress".
+5.  **Action**: Tap the "Hide Session Progress" button.
+6.  **Verification**:
+    *   **Expected Result**: The session statistics should hide again.
+
+#### Test Case SP3: Stats Visibility (Desktop)
+1.  **Action**: Navigate to the study page on a desktop screen size. Start a study session.
+2.  **Verification**:
+    *   **Expected Result**: The session statistics should be visible by default. The "View/Hide Session Progress" button specific to mobile should not be visible.
+
+#### Test Case SP4: Answer Buttons (Mobile)
+1.  **Action**: On the study page (mobile view), observe the "Correct" and "Incorrect" answer buttons.
+2.  **Verification**:
+    *   **Expected Result**: The buttons should primarily display icons (e.g., checkmark, cross) and be compact. They should be easily tappable and well-spaced (e.g., `justify-around`).
+
+#### Test Case SP5: Answer Buttons (Desktop)
+1.  **Action**: On the study page (desktop view), observe the "Correct" and "Incorrect" answer buttons.
+2.  **Verification**:
+    *   **Expected Result**: The buttons should display text labels ("Correct", "Incorrect") and be appropriately sized for desktop interaction.
+
+#### Test Case SP6: Progress Bar (All Screens)
+1.  **Action**: On the study page, observe the progress bar.
+2.  **Verification**:
+    *   **Expected Result**: The progress bar should be thinner than its original design (e.g., `h-1.5`). It should display correctly on all screen sizes.
+
+#### Test Case SP7: Configuration/Filter Controls (Mobile)
+1.  **Action**: On the study page (mobile view), observe the area with "Shuffle," "Study Failed Only," etc., buttons.
+2.  **Verification**:
+    *   **Expected Result**: These buttons should wrap onto multiple lines or stack vertically if space is limited, without causing horizontal overflow. They should be aligned neatly (e.g., `justify-start` or `items-start` for the group). The "Card X of Y" text and this group of buttons should also stack vertically.
+
+#### Test Case SP8: Configuration/Filter Controls (Desktop)
+1.  **Action**: On the study page (desktop view), observe the "Shuffle," "Study Failed Only," etc., buttons.
+2.  **Verification**:
+    *   **Expected Result**: These buttons should be laid out in a row, typically aligned to the right, with the "Card X of Y" text to their left.
+
+## Notes
+- Pay attention to element alignment, spacing, and font sizes across different breakpoints.
+- Test on actual mobile devices if possible, in addition to browser simulation.

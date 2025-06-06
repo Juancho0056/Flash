@@ -49,6 +49,7 @@
 
 	let hasShownPerfectBadgeMessage = false;
 	let showBadgeMessage = false;
+	let showMobileStats = false; // For toggling stats visibility on mobile
 
 	let collections: Collection[] = []; // For selection dropdown
 	let selectedCollectionId: string | undefined = undefined;
@@ -543,7 +544,18 @@
 		<p class="text-gray-500">Loading flashcards...</p>
 	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
 		<div class="study-area rounded-lg bg-white p-6 shadow-xl md:p-8">
-			<SessionStats />
+			<!-- Button for Mobile to toggle stats -->
+			<button
+				class="mb-4 w-full rounded bg-blue-500 px-4 py-2 text-sm text-white hover:bg-blue-600 md:hidden"
+				on:click={() => (showMobileStats = !showMobileStats)}
+			>
+				{showMobileStats ? 'Hide' : 'View'} Session Progress
+			</button>
+
+			<!-- Stats Display -->
+			<div class="${showMobileStats ? 'block' : 'hidden'} md:block">
+				<SessionStats />
+			</div>
 
 			<div class="my-4 flex items-center justify-end">
 				<label for="autoPlayToggle" class="mr-2 text-sm text-gray-700">Auto-speak cards:</label>
@@ -563,7 +575,8 @@
 				</p>
 			{/if}
 
-			<div class="mb-4 flex items-center justify-between pt-4">
+			{/* Container for Card Count and Filter Controls */}
+			<div class="mb-4 flex flex-col items-start gap-2 pt-4 md:flex-row md:items-center md:justify-between">
 				<p class="text-sm text-gray-600">
 					Card {$currentIndex + 1} of {$totalFlashcards}
 					{#if $activeCollection.name}in "{$activeCollection.name}"{/if}
@@ -574,7 +587,8 @@
 					{/if}
 				</p>
 
-				<div class="flex space-x-2">
+				{/* Filter Controls Button Group */}
+				<div class="flex flex-wrap justify-start gap-2 md:justify-end">
 					<button
 						on:click={handleShuffle}
 						class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
@@ -607,9 +621,9 @@
 				</div>
 			</div>
 
-			<div class="mb-4 h-2.5 w-full rounded-full bg-gray-200">
+			<div class="mb-4 h-1.5 w-full rounded-full bg-gray-200"> {/* Thinner progress bar */}
 				<div
-					class="h-2.5 rounded-full bg-blue-600 transition-all duration-300"
+					class="h-1.5 rounded-full bg-blue-600 transition-all duration-300" /* Thinner progress bar */
 					style="width: {$progressPercentage}%"
 				></div>
 			</div>
@@ -617,14 +631,13 @@
 			{#if $currentCard}
 				{#if $currentCard}
 					<div
-						class="card-wrapper mx-auto flex flex-grow items-center justify-center transition-all duration-300 ease-in-out"
+						class="card-wrapper mx-auto flex w-full flex-grow flex-col items-center justify-center transition-all duration-300 ease-in-out min-h-[70vh] md:min-h-[260px] md:h-auto md:max-w-xl lg:max-w-2xl"
 						class:border-green-500={answerFeedback === 'correct'}
 						class:border-red-500={answerFeedback === 'incorrect'}
 						class:shadow-green-xl={answerFeedback === 'correct'}
 						class:shadow-red-xl={answerFeedback === 'incorrect'}
 						class:border-4={answerFeedback !== null}
-						style="max-width: 500px; min-height: 260px;"
-					>
+						>
 						<Card
 							front={$currentCard.question}
 							back={$currentCard.answer}
@@ -681,24 +694,34 @@
 						>
 							Previous
 						</button>
-						<div class="flex space-x-3">
+						<div class="flex w-full justify-around space-x-2 md:w-auto md:justify-start md:space-x-3"> {/* Adjusted for mobile spacing */}
 							<button
 								on:click={() => handleMarkAnswer(false)}
 								disabled={!$currentCard ||
 									$currentCard.flipped ||
 									($currentCard.answeredInSession && !$currentCard.failedInSession)}
-								class="rounded-md bg-red-500 px-4 py-3 text-sm text-white transition-colors hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+								class="flex-grow rounded-md bg-red-500 p-3 text-sm text-white transition-colors hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:px-4 md:py-3 md:flex-grow-0"
 							>
-								Incorrect
+								<span class="md:hidden">
+									<svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+										<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+									</svg>
+								</span>
+								<span class="hidden md:inline">Incorrect</span>
 							</button>
 							<button
 								on:click={() => handleMarkAnswer(true)}
 								disabled={!$currentCard ||
 									$currentCard.flipped ||
 									($currentCard.answeredInSession && !$currentCard.failedInSession)}
-								class="rounded-md bg-green-500 px-4 py-3 text-sm text-white transition-colors hover:bg-green-600 focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+								class="flex-grow rounded-md bg-green-500 p-3 text-sm text-white transition-colors hover:bg-green-600 focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:px-4 md:py-3 md:flex-grow-0"
 							>
-								Correct
+								<span class="md:hidden">
+									<svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+										<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+									</svg>
+								</span>
+								<span class="hidden md:inline">Correct</span>
 							</button>
 						</div>
 						<button
