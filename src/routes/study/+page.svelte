@@ -543,10 +543,10 @@
 	{#if isLoadingFlashcards}
 		<p class="text-gray-500">Loading flashcards...</p>
 	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
-		<div class="study-area rounded-lg bg-white p-6 shadow-xl md:p-8">
+		<div class="study-area rounded-lg bg-white p-3 shadow-xl sm:p-4 md:p-6 lg:p-8"> {/* Adjusted padding */}
 			<!-- Button for Mobile to toggle stats -->
 			<button
-				class="mb-4 w-full rounded bg-blue-500 px-4 py-2 text-sm text-white hover:bg-blue-600 md:hidden"
+				class="mb-2 w-full rounded bg-blue-500 px-4 py-2 text-sm text-white hover:bg-blue-600 md:mb-4 md:hidden" /* Adjusted margin */
 				on:click={() => (showMobileStats = !showMobileStats)}
 			>
 				{showMobileStats ? 'Hide' : 'View'} Session Progress
@@ -631,7 +631,7 @@
 			{#if $currentCard}
 				{#if $currentCard}
 					<div
-						class="card-wrapper mx-auto flex w-full flex-grow flex-col items-center justify-center transition-all duration-300 ease-in-out min-h-[70vh] md:min-h-[260px] md:h-auto md:max-w-xl lg:max-w-2xl"
+						class="card-wrapper mx-auto flex w-full flex-grow flex-col items-center justify-center transition-all duration-300 ease-in-out min-h-[60vh] md:min-h-[260px] md:h-auto md:max-w-xl lg:max-w-2xl" /* Adjusted min-height */
 						class:border-green-500={answerFeedback === 'correct'}
 						class:border-red-500={answerFeedback === 'incorrect'}
 						class:shadow-green-xl={answerFeedback === 'correct'}
@@ -678,62 +678,75 @@
 						</button>
 					</div>
 
-					<!-- Score y navegación -->
-					<div class="my-4 text-center">
+					<!-- Score display -->
+					<div class="my-3 text-center md:my-4"> {/* Adjusted margin */}
 						<p class="mb-1 text-xl font-bold text-indigo-600">Score: {$currentScore}</p>
 						<p class="text-md">{$correctAnswers} Correct, {$incorrectAnswers} Incorrect</p>
 					</div>
 
-					<div
-						class="mt-8 flex flex-col items-center justify-between space-y-3 sm:flex-row sm:space-y-0 sm:space-x-3"
-					>
+					<!-- Consolidated Control Bar -->
+					<div class="mt-4 flex w-full items-center justify-between space-x-1 sm:space-x-2 md:mt-8">
+						<!-- Previous Button -->
 						<button
 							on:click={() => handleNavigate('prev')}
 							disabled={$totalFlashcards <= 1}
-							class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+							class="rounded-md border border-gray-300 p-2.5 text-gray-700 hover:bg-gray-100 disabled:opacity-50 md:px-6 md:py-3"
+							aria-label="Previous card"
 						>
-							Previous
+							<span class="md:hidden">
+								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+									<path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+								</svg>
+							</span>
+							<span class="hidden md:inline">Previous</span>
 						</button>
-						<div class="flex w-full justify-around space-x-2 md:w-auto md:justify-start md:space-x-3"> {/* Adjusted for mobile spacing */}
-							<button
-								on:click={() => handleMarkAnswer(false)}
-								disabled={!$currentCard ||
-									$currentCard.flipped ||
-									($currentCard.answeredInSession && !$currentCard.failedInSession)}
-								class="flex-grow rounded-md bg-red-500 p-3 text-sm text-white transition-colors hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:px-4 md:py-3 md:flex-grow-0"
-							>
-								<span class="md:hidden">
-									<svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-										<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-									</svg>
-								</span>
-								<span class="hidden md:inline">Incorrect</span>
-							</button>
-							<button
-								on:click={() => handleMarkAnswer(true)}
-								disabled={!$currentCard ||
-									$currentCard.flipped ||
-									($currentCard.answeredInSession && !$currentCard.failedInSession)}
-								class="flex-grow rounded-md bg-green-500 p-3 text-sm text-white transition-colors hover:bg-green-600 focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:px-4 md:py-3 md:flex-grow-0"
-							>
-								<span class="md:hidden">
-									<svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-										<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-									</svg>
-								</span>
-								<span class="hidden md:inline">Correct</span>
-							</button>
-						</div>
+
+						<!-- Incorrect Button -->
+						<button
+							on:click={() => handleMarkAnswer(false)}
+							disabled={!$currentCard || $currentCard.flipped || ($currentCard.answeredInSession && !$currentCard.failedInSession)}
+							class="flex-grow rounded-md bg-red-500 p-3 text-white transition-colors hover:bg-red-600 disabled:opacity-50 md:flex-grow-0 md:px-4 md:py-3"
+							aria-label="Mark as incorrect"
+						>
+							<span class="mx-auto md:hidden">
+								<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+									<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+								</svg>
+							</span>
+							<span class="hidden md:inline">Incorrect</span>
+						</button>
+
+						<!-- Correct Button -->
+						<button
+							on:click={() => handleMarkAnswer(true)}
+							disabled={!$currentCard || $currentCard.flipped || ($currentCard.answeredInSession && !$currentCard.failedInSession)}
+							class="flex-grow rounded-md bg-green-500 p-3 text-white transition-colors hover:bg-green-600 disabled:opacity-50 md:flex-grow-0 md:px-4 md:py-3"
+							aria-label="Mark as correct"
+						>
+							<span class="mx-auto md:hidden">
+								<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+									<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+								</svg>
+							</span>
+							<span class="hidden md:inline">Correct</span>
+						</button>
+
+						<!-- Next Button -->
 						<button
 							on:click={() => handleNavigate('next')}
 							disabled={$totalFlashcards <= 1}
-							class="w-full rounded-md border border-gray-300 px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+							class="rounded-md border border-gray-300 p-2.5 text-gray-700 hover:bg-gray-100 disabled:opacity-50 md:px-6 md:py-3"
+							aria-label="Next card"
 						>
-							Next
+							<span class="md:hidden">
+								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+									<path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+								</svg>
+							</span>
+							<span class="hidden md:inline">Next</span>
 						</button>
 					</div>
 				{/if}
-				<!-- Ya corregido como en la respuesta anterior -->
 			{:else if !$currentCard && $totalFlashcards > 0}
 				<p class="py-10 text-center text-red-500">
 					Error: Card data seems to be in an inconsistent state. Try reloading or selecting another

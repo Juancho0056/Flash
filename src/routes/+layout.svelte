@@ -20,52 +20,39 @@
 <ToastsContainer />
 
 <div class="main-content flex min-h-screen flex-col">
-	<header class="relative bg-gray-800 p-4 text-white shadow-md"> {/* Added relative for positioning context of mobile menu */}
+	<header class="relative bg-gray-800 p-2 text-white shadow-md md:p-4"> {/* Reduced padding for mobile */}
 		<nav class="container mx-auto flex items-center justify-between">
-			<a href="/" class="text-xl font-semibold hover:text-gray-300">Flashcard App</a>
+			<a href="/" class="text-lg font-semibold hover:text-gray-300 md:text-xl">Flashcard App</a> {/* Responsive font size */}
 
-			<!-- Mobile Menu Button -->
-			<div class="md:hidden">
+			<!-- Mobile Right Side: Score, User (truncated), Burger Button -->
+			<div class="flex items-center space-x-1 sm:space-x-2 md:hidden">
+				{#if data.user}
+					<div class="flex items-center space-x-1 text-xs sm:text-sm">
+						<span class="font-bold text-yellow-400">{data.totalAccumulatedScore}pts</span>
+						<span class="max-w-[50px] truncate text-gray-300 xs:max-w-[60px] sm:max-w-[100px]">{data.user.email}</span>
+					</div>
+				{/if}
+				{!-- Mobile Menu Button (moved here) --}
 				<button
 					on:click={() => (isMobileMenuOpen = !isMobileMenuOpen)}
 					aria-label="Toggle menu"
 					aria-expanded={isMobileMenuOpen}
 					aria-controls="main-nav-menu"
-					class="rounded p-2 text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white"
+					class="rounded p-1.5 text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white sm:p-2"
 				>
 					{#if isMobileMenuOpen}
-						<!-- Close Icon (X) -->
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							class="h-6 w-6"
-							fill="none"
-							viewBox="0 0 24 24"
-							stroke="currentColor"
-							stroke-width="2"
-						>
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 							<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
 						</svg>
 					{:else}
-						<!-- Hamburger Icon -->
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							class="h-6 w-6"
-							fill="none"
-							viewBox="0 0 24 24"
-							stroke="currentColor"
-							stroke-width="2"
-						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								d="M4 6h16M4 12h16M4 18h16"
-							/>
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
 						</svg>
 					{/if}
 				</button>
 			</div>
 
-			<!-- Navigation -->
+			{!-- Navigation Links (Desktop Bar and Mobile Dropdown Content) --}
 			<ul
 				id="main-nav-menu"
 				class="md:flex md:items-center md:space-x-4 ${isMobileMenuOpen
@@ -76,17 +63,14 @@
 					<a href="/" class="block rounded px-3 py-2 hover:bg-gray-700 md:hover:bg-transparent md:hover:text-gray-300">Home</a>
 				</li>
 				{#if data.user}
-					<li>
-						<span class="block rounded px-3 py-2 text-gray-400 md:text-gray-400"
-							>Logged in as {data.user.email}</span
-						>
+					{!-- User email and score for DESKTOP view and MOBILE DROPDOWN view --}
+					<li class="hidden md:block"> {/* Hidden on mobile bar, shown in desktop bar & mobile dropdown if not further hidden by parent ul's mobile state */}
+						<span class="block rounded px-3 py-2 text-gray-400">Logged in as {data.user.email}</span>
 					</li>
-					<li>
-						<span class="block rounded px-3 py-2 font-bold text-yellow-400 md:text-yellow-400"
-							>Total Score: {data.totalAccumulatedScore}</span
-						>
+					<li class="hidden md:block">  {/* Hidden on mobile bar, shown in desktop bar & mobile dropdown if not further hidden by parent ul's mobile state */}
+						<span class="block rounded px-3 py-2 font-bold text-yellow-400">Total Score: {data.totalAccumulatedScore}</span>
 					</li>
-					<li>
+					<li> {!-- Logout button visible in mobile dropdown and desktop bar --}
 						<button
 							on:click={handleLogout}
 							class="block w-full rounded px-3 py-2 text-left hover:bg-gray-700 md:w-auto md:text-left md:hover:bg-transparent md:hover:text-gray-300"
