@@ -4,7 +4,7 @@
 	import { get } from 'svelte/store'; // Added get
 	import { page } from '$app/stores'; // Added page store
 	import type { Collection, Flashcard as PrismaFlashcard } from '@prisma/client';
-	import Card from '$lib/components/Card.svelte'; // Adjust path as necessary
+	import Card from '$lib/components/Card.svelte'; // Import the component
 	import SessionStats from '$lib/components/SessionStats.svelte'; // Import SessionStats component
 	import { tick } from 'svelte';
 	import {
@@ -47,10 +47,167 @@
 	import { toast } from '$lib/toastStore'; // Import toast
 	import { awardBadge, BadgeId } from '$lib/services/badgeService';
 	import { afterUpdate } from 'svelte'; // Import afterUpdate for reactive updates
-	import { ttsSettings, updateTTSSettings } from '$lib/stores/ttsStore'; // Import TTS store and updater
+	// import { ttsSettings, updateTTSSettings } from '$lib/stores/ttsStore'; // Import TTS store and updater
+	import {
+		ttsSettings,
+		startPlayback,
+		pausePlayback,
+		stopPlayback, // if you plan to use a dedicated stop button
+		setPlaybackSpeed,
+		updateTTSSettings
+	} from '$lib/stores/ttsStore';
+	import { get } from 'svelte/store'; // Ensure 'get' is imported
+	import { tick } from 'svelte'; // Ensure 'tick' is imported
+
+
+	let cardComponent: Card; // To call speakCardDetails
+
+	// Reactive variables for UI binding
+	let isPlaying: boolean;
+	let playbackSpeed: number;
+	// autoPlayTTS is already declared in the original file, ensure it's updated by ttsSettings subscription
+	// let autoPlayTTS: boolean;
+
+
+	ttsSettings.subscribe(settings => {
+		isPlaying = settings.isPlaying;
+		playbackSpeed = settings.playbackSpeed;
+		autoPlayTTS = settings.autoPlay; // Ensure this is the existing autoPlayTTS from the outer scope
+	});
+
+	// Handler for playback speed change
+	function handleSpeedChange(event: Event) {
+		const target = event.target as HTMLInputElement;
+		setPlaybackSpeed(parseFloat(target.value));
+	}
+
+	// // Handler for play/pause button - Will be replaced/updated below
+	// function togglePlayback() {
+	// 	if (isPlaying) {
+	// 		pausePlayback();
+	// 		if (typeof window !== 'undefined' && window.speechSynthesis) {
+	// 			window.speechSynthesis.cancel();
+	// 		}
+	// 	} else {
+	// 		startPlayback();
+	// 		// Playback logic will be triggered by a reactive statement listening to `isPlaying` (next step)
+	// 	}
+	// }
 
 	let showStatsModal = false; // For stats modal on mobile
 	let collectionPerfectToastShownThisSession = false;
+
+	// Playback management variables
+	let shuffledPlaybackdeck: FlashcardStudy[] = [];
+	let currentPlaybackIndex = 0;
+	let isPlaybackLoopRunning = false;
+
+	async function startCardSequencePlayback() {
+		if (isPlaybackLoopRunning) return;
+		isPlaybackLoopRunning = true;
+
+		const currentCardsInStore = get(currentFlashcards);
+		if (!currentCardsInStore || currentCardsInStore.length === 0) {
+			pausePlayback(); // Ensure isPlaying is false if no cards
+			isPlaybackLoopRunning = false;
+			return;
+		}
+
+		// Create a shuffled deck for playback
+		shuffledPlaybackdeck = [...currentCardsInStore]
+			.map(value => ({ value, sort: Math.random() }))
+			.sort((a, b) => a.sort - b.sort)
+			.map(({ value }) => value);
+
+		currentPlaybackIndex = 0;
+
+		while (currentPlaybackIndex < shuffledPlaybackdeck.length && get(ttsSettings).isPlaying) {
+			const cardToPlay = shuffledPlaybackdeck[currentPlaybackIndex];
+
+			// Find the original index of this card in the non-shuffled list to update UI correctly
+			const originalIndex = currentCardsInStore.findIndex(fc => fc.id === cardToPlay.id);
+			if (originalIndex !== -1) {
+				currentIndex.set(originalIndex); // This will make $currentCard reactive and update the UI
+			} else {
+				// Card not found in original list, something is wrong. Skip or stop.
+				console.error("Card from shuffled deck not found in original store. Skipping.");
+				currentPlaybackIndex++;
+				continue;
+			}
+
+			await tick(); // Wait for $currentCard to update and Card component to be ready
+
+			if (cardComponent && typeof cardComponent.speakCardDetails === 'function') {
+				// Ensure card is initially showing the front for playback
+				if (get(currentCard)?.flipped) {
+						flipCard(cardToPlay.id, false);
+						await tick(); // Wait for flip to visually complete
+				}
+
+				try {
+					await cardComponent.speakCardDetails({
+						frontText: cardToPlay.question,
+						backText: cardToPlay.answer,
+						exampleText: cardToPlay.example || '',
+						pronunciationText: cardToPlay.pronunciation || '',
+						lang: cardLanguage || get(ttsSettings).defaultLang, // cardLanguage from component scope
+						speed: get(ttsSettings).playbackSpeed,
+						delay: 750 // Standard delay between parts, from Card.svelte
+					});
+
+					// If still playing after speech has finished
+					if (get(ttsSettings).isPlaying) {
+						// Flip to back if not already (speakCardDetails doesn't flip)
+						if (!get(currentCard)?.flipped) {
+								flipCard(cardToPlay.id, true);
+								await tick();
+						}
+						// Wait a bit before moving to the next card
+						await new Promise(r => setTimeout(r, 1500));
+						currentPlaybackIndex++;
+					} else {
+						// Playback was paused/stopped during speech
+						break;
+					}
+				} catch (error) {
+					console.error("Error during card speech:", error);
+					// Optionally, stop playback on error
+					// pausePlayback();
+					break;
+				}
+			} else {
+				console.warn('Card component or speakCardDetails not available. Stopping playback.');
+				pausePlayback();
+				break;
+			}
+		}
+
+		// If loop finished (either all cards played or paused)
+		if (get(ttsSettings).isPlaying && currentPlaybackIndex >= shuffledPlaybackdeck.length) {
+			// All cards played
+			toast.success("Playback finished!"); // Optional feedback
+			pausePlayback(); // Set isPlaying to false
+		}
+		isPlaybackLoopRunning = false;
+	}
+
+	// Reactive statement to start/stop playback loop
+	$: if (get(ttsSettings).isPlaying && !isPlaybackLoopRunning) {
+		startCardSequencePlayback();
+	}
+
+	// Modify togglePlayback to stop speech synthesis when pausing
+	function togglePlayback() {
+		if (get(ttsSettings).isPlaying) {
+			pausePlayback(); // This will set ttsSettings.isPlaying to false
+			if (typeof window !== 'undefined' && window.speechSynthesis) {
+				window.speechSynthesis.cancel(); // Explicitly stop any ongoing TTS
+			}
+			// The loop will see isPlaying as false and stop. isPlaybackLoopRunning will be set to false by the loop itself.
+		} else {
+			startPlayback(); // This sets ttsSettings.isPlaying to true, reactive statement will pick it up
+		}
+	}
 
 	let collections: Collection[] = []; // For selection dropdown
 	let selectedCollectionId: string | undefined = undefined;
@@ -601,14 +758,54 @@
 					{/if}
 
 					<!-- Tarjeta principal -->
+					<!-- Playback Controls -->
+					<div class="mt-4 flex items-center gap-4 rounded-md bg-gray-100 p-3 shadow">
+						<button
+							on:click={togglePlayback}
+							class="rounded px-4 py-2 text-white flex items-center"
+							class:bg-blue-500={!isPlaying}
+							class:hover:bg-blue-600={!isPlaying}
+							class:bg-red-500={isPlaying}
+							class:hover:bg-red-600={isPlaying}
+							title={isPlaying ? 'Pause card playback' : 'Play cards automatically'}
+						>
+							{isPlaying ? 'Pause' : 'Play'}
+							<svg class="ml-2 inline-block h-5 w-5 fill-current" viewBox="0 0 20 20">
+								{#if isPlaying}
+									<!-- Pause Icon -->
+									<path d="M5 4h3v12H5V4zm7 0h3v12h-3V4z"/>
+								{:else}
+									<!-- Play Icon -->
+									<path d="M4 4l12 6-12 6z"/>
+								{/if}
+							</svg>
+						</button>
+						<div class="flex items-center gap-2">
+							<label for="playbackSpeedSlider" class="text-sm text-gray-700">Speed:</label>
+							<input
+								type="range"
+								id="playbackSpeedSlider"
+								min="0.5"
+								max="2"
+								step="0.1"
+								bind:value={playbackSpeed}
+								on:input={handleSpeedChange} /* Changed from on:change to on:input */
+								class="w-24 cursor-pointer"
+								title={`Playback speed: ${playbackSpeed}x`}
+							/>
+							<span class="text-sm text-gray-600 w-8 text-right">{playbackSpeed.toFixed(1)}x</span>
+						</div>
+					</div>
+
 					<Card
+						bind:this={cardComponent}
 						front={$currentCard.question}
 						back={$currentCard.answer}
 						imageUrl={$currentCard.imageUrl}
 						pronunciation={$currentCard.pronunciation}
 						example={$currentCard.example}
 						flipped={$currentCard.flipped || false}
-						cardLang={cardLanguage}
+						cardLang={cardLanguage} /* Ensure cardLanguage is defined in the scope */
 						on:toggle={(e) => flipCard($currentCard!.id, e.detail.flipped)}
 					/>
 

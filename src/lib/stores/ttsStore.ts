@@ -3,6 +3,8 @@ import { writable } from 'svelte/store';
 export interface TTSSettings {
   autoPlay: boolean;
   defaultLang: string;
+  isPlaying: boolean;
+  playbackSpeed: number;
   // voice?: string; // Future enhancement: allow selecting a specific voice
   // rate?: number;  // Future enhancement: control speech rate
   // pitch?: number; // Future enhancement: control speech pitch
@@ -13,7 +15,7 @@ const TTS_SETTINGS_STORAGE_KEY = 'tts_settings';
 function loadTTSSettings(): TTSSettings {
   if (typeof window === 'undefined') {
     // SSR Guard: Return defaults
-    return { autoPlay: false, defaultLang: 'en-US' };
+    return { autoPlay: false, defaultLang: 'en-US', isPlaying: false, playbackSpeed: 1 };
   }
 
   const storedSettingsJson = localStorage.getItem(TTS_SETTINGS_STORAGE_KEY);
@@ -24,16 +26,18 @@ function loadTTSSettings(): TTSSettings {
       return {
         autoPlay: parsedSettings.autoPlay || false,
         defaultLang: parsedSettings.defaultLang || 'en-US',
+        isPlaying: parsedSettings.isPlaying || false,
+        playbackSpeed: parsedSettings.playbackSpeed || 1,
       };
     } catch (e) {
       console.error('Error parsing TTS settings from localStorage:', e);
       localStorage.removeItem(TTS_SETTINGS_STORAGE_KEY); // Clear corrupted data
       // Fallback to defaults
-      return { autoPlay: false, defaultLang: 'en-US' };
+      return { autoPlay: false, defaultLang: 'en-US', isPlaying: false, playbackSpeed: 1 };
     }
   }
   // No settings found in localStorage, return defaults
-  return { autoPlay: false, defaultLang: 'en-US' };
+  return { autoPlay: false, defaultLang: 'en-US', isPlaying: false, playbackSpeed: 1 };
 }
 
 const initialState: TTSSettings = loadTTSSettings();
@@ -54,3 +58,21 @@ export function updateTTSSettings(newSettings: Partial<TTSSettings>) {
 // Example usage for updating a specific setting:
 // updateTTSSettings({ autoPlay: true });
 // updateTTSSettings({ defaultLang: 'es-ES' });
+
+export function startPlayback() {
+  updateTTSSettings({ isPlaying: true });
+}
+
+export function pausePlayback() {
+  updateTTSSettings({ isPlaying: false });
+}
+
+export function stopPlayback() {
+  updateTTSSettings({ isPlaying: false });
+}
+
+export function setPlaybackSpeed(speed: number) {
+  // Basic validation for speed
+  const newSpeed = Math.max(0.5, Math.min(speed, 2));
+  updateTTSSettings({ playbackSpeed: newSpeed });
+}

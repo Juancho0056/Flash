@@ -43,33 +43,101 @@
 
   let currentAutoPlay: boolean;
   let currentDefaultLang: string;
+  let currentPlaybackSpeed: number;
+  let prevFlipped = flipped; // Ensure this is declared
 
   ttsSettings.subscribe(settings => {
-    currentAutoPlay = settings.autoPlay;
-    currentDefaultLang = settings.defaultLang;
+    currentAutoPlay = settings.autoPlay; // Keep existing
+    currentDefaultLang = settings.defaultLang; // Keep existing
+    currentPlaybackSpeed = settings.playbackSpeed; // NEW
   });
 
-  onMount(() => {
-    if (currentAutoPlay && front) {
-      // Use a slight delay to ensure the card is visible and ready
-      setTimeout(() => {
-        speak(stripHtml(front), cardLang || currentDefaultLang);
-      }, 100);
+  function speak(text: string, lang: string = 'en-US', speed: number = 1) { // Added speed parameter
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      // speechSynthesis.cancel(); // Moved to speakCardDetails or specific play triggers
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = lang || currentDefaultLang;
+      utterance.rate = speed; // Set playback speed
+      speechSynthesis.speak(utterance);
+      return utterance; // Return utterance to attach event listeners if needed
+    } else {
+      console.warn('Speech synthesis not supported or not available.');
+      return null;
     }
+  }
+
+  // New function to speak all parts of the card with delays
+  export async function speakCardDetails(
+    { frontText = '', backText = '', exampleText = '', pronunciationText = '', lang = cardLang || currentDefaultLang, speed = currentPlaybackSpeed, delay = 750 }
+  ) {
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      console.warn('Speech synthesis not supported.');
+      return;
+    }
+    speechSynthesis.cancel(); // Cancel any ongoing speech first
+
+    const speakAndWait = (textToSpeak: string, currentLang: string, currentSpeed: number) => {
+      return new Promise<void>((resolve, reject) => {
+        if (!textToSpeak.trim()) {
+          resolve(); // Resolve immediately if text is empty
+          return;
+        }
+        const utterance = speak(stripHtml(textToSpeak), currentLang, currentSpeed);
+        if (utterance) {
+          utterance.onend = () => resolve();
+          utterance.onerror = (event) => {
+            console.error('Speech synthesis error:', event);
+            reject(event);
+          };
+        } else {
+          resolve(); // Resolve if speak returns null (e.g., SSR or no support)
+        }
+      });
+    };
+
+    try {
+      if (stripHtml(frontText).trim()) {
+        await speakAndWait(frontText, lang, speed);
+        await new Promise(r => setTimeout(r, delay));
+      }
+      if (stripHtml(backText).trim()) {
+        await speakAndWait(backText, lang, speed);
+        await new Promise(r => setTimeout(r, delay));
+      }
+      if (stripHtml(pronunciationText).trim()) { // Speak pronunciation if available
+        await speakAndWait(pronunciationText, lang, speed);
+        await new Promise(r => setTimeout(r, delay));
+      }
+      if (stripHtml(exampleText).trim()) {
+        await speakAndWait(exampleText, lang, speed);
+      }
+    } catch (error) {
+      console.error("Error during sequential speech playback:", error);
+      // Ensure speech is cancelled on error too
+      speechSynthesis.cancel();
+    }
+  }
+
+  // Remove auto-speak from onMount for 'front'
+  onMount(() => {
+    // Original autoPlay logic removed or commented out:
+    // if (currentAutoPlay && front) {
+    //   setTimeout(() => {
+    //     speak(stripHtml(front), cardLang || currentDefaultLang, currentPlaybackSpeed);
+    //   }, 100);
+    // }
   });
 
-  // Svelte 4/5 might use a reactive statement like $: for `flipped` changes.
-  // For Svelte 3, or for more control, afterUpdate is an option.
-  let prevFlipped = flipped; // Store previous flipped state
+  // Remove auto-speak from afterUpdate for 'back'
   afterUpdate(() => {
-    if (flipped !== prevFlipped) { // Check if flipped state actually changed
-      if (flipped && currentAutoPlay && back) {
-        // Use a slight delay
-        setTimeout(() => {
-          speak(stripHtml(back), cardLang || currentDefaultLang);
-        }, 100);
-      }
-      prevFlipped = flipped; // Update previous state
+    if (flipped !== prevFlipped) {
+      // Original autoPlay logic removed or commented out:
+      // if (flipped && currentAutoPlay && back) {
+      //   setTimeout(() => {
+      //     speak(stripHtml(back), cardLang || currentDefaultLang, currentPlaybackSpeed);
+      //   }, 100);
+      // }
+      prevFlipped = flipped;
     }
   });
 
@@ -87,7 +155,7 @@
       <button
         type="button"
         class="tts-button"
-        on:click|stopPropagation={() => speak(stripHtml(front), cardLang)}
+        on:click|stopPropagation={() => speak(stripHtml(front), cardLang, currentPlaybackSpeed)}
         title="Speak question"
       >
         🔊
@@ -99,7 +167,7 @@
         <button
           type="button"
           class="tts-button tts-button-back"
-          on:click|stopPropagation={() => speak(stripHtml(back), cardLang)}
+          on:click|stopPropagation={() => speak(stripHtml(back), cardLang, currentPlaybackSpeed)}
           title="Speak answer"
         >
           🔊
@@ -110,7 +178,7 @@
             <button
               type="button"
               class="tts-button-inline"
-              on:click|stopPropagation={() => speak(example!, cardLang)}
+              on:click|stopPropagation={() => speak(stripHtml(example!), cardLang, currentPlaybackSpeed)}
               title="Speak example"
             >
               🔊
@@ -121,7 +189,7 @@
           <p class="mt-2 text-sm text-gray-600 italic">Pronunciation: {pronunciation}</p>
           <button
             type="button"
-            on:click|stopPropagation={() => speak(pronunciation!, cardLang)}
+            on:click|stopPropagation={() => speak(stripHtml(pronunciation!), cardLang, currentPlaybackSpeed)}
             class="mt-2 rounded bg-indigo-600 px-3 py-1 text-sm text-white hover:bg-indigo-700 cursor-pointer"
             title="Speak pronunciation"
           >
