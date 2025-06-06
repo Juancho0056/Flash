@@ -154,3 +154,65 @@ To verify that the application's global header and study page are responsive and
 ## Notes
 - Pay attention to element alignment, spacing, and font sizes across different breakpoints.
 - Test on actual mobile devices if possible, in addition to browser simulation.
+
+## Part 3: Mobile Study UI Refinements (Phase 1)
+
+### Objective
+To verify that recent UI refinements to the global navbar (mobile) and the study page (mobile) have been implemented correctly, improving usability, focus, and layout on smaller screens.
+
+### Prerequisites
+- Application running locally or on a test environment.
+- A user account with some collections and flashcards.
+- Browser developer tools for simulating different screen sizes.
+
+### Test Cases - Global Navbar (Mobile)
+
+#### Test Case N1: Navbar Height and Compactness (Mobile)
+1.  **Action**: Open the application on a small screen (e.g., simulate iPhone width).
+2.  **Verification**:
+    *   **Expected Result**: The global navbar should appear noticeably shorter/more compact than its previous version.
+    *   The app title, a compact user score (e.g., "150pts"), a truncated user email, and the hamburger icon should all be visible in a single row and appropriately sized for the reduced height.
+    *   Ensure there's no awkward text wrapping or element collision within the compact navbar.
+
+### Test Cases - Study Page (`/study`) - Mobile View
+
+#### Test Case SP9: Reduced Spacing Around Card
+1.  **Action**: Navigate to the study page on a small screen. Start a study session.
+2.  **Verification**:
+    *   **Expected Result**: The overall spacing above and below the flashcard area should be reduced. The flashcard itself should feel more central and less pushed down by elements above or separated from controls below.
+    *   The `study-area` padding should be visibly less on small screens.
+    *   The `card-wrapper` should still ensure the card is prominent, but the `min-height-[60vh]` should allow for flexibility if card content is small, preventing excessive internal whitespace.
+
+#### Test Case SP10: Consolidated Control Bar - Layout & Proximity
+1.  **Action**: On the study page (mobile view), observe the area below the flashcard and score display.
+2.  **Verification**:
+    *   **Expected Result**: The "Previous", "Incorrect", "Correct", and "Next" buttons should now be grouped together in a single horizontal bar.
+    *   This control bar should be positioned closely below the score display (which is below the card), with reduced top margin compared to the previous layout.
+    *   The buttons within the bar should be appropriately spaced (e.g., `justify-between` or using `flex-grow` on answer buttons effectively).
+
+#### Test Case SP11: Consolidated Control Bar - Button Styles (Mobile)
+1.  **Action**: Examine the buttons within the consolidated control bar on mobile.
+2.  **Verification**:
+    *   **"Incorrect" & "Correct" Buttons**: Should display as icons (e.g., cross and checkmark). Icons should be clear and buttons easily tappable (check size/padding like `p-3`). They should expand to fill space (`flex-grow`).
+    *   **"Previous" & "Next" Buttons**: Should display as icons (e.g., chevrons). They should be compact (`p-2.5`) but tappable.
+    *   All buttons should have `aria-label` attributes for accessibility.
+
+#### Test Case SP12: Consolidated Control Bar - Button Styles (Desktop)
+1.  **Action**: Switch to a desktop view of the study page.
+2.  **Verification**:
+    *   **Expected Result**: The consolidated control bar should still be present.
+    *   "Incorrect" & "Correct" buttons should display their text labels. `flex-grow` should be reset so they don't unnaturally expand.
+    *   "Previous" & "Next" buttons should display their text labels and have desktop-appropriate padding.
+    *   The bar should be appropriately aligned (e.g., `md:mt-8` for top margin).
+
+#### Test Case SP13: Functionality of Consolidated Controls
+1.  **Action**: On both mobile and desktop views, interact with all buttons in the consolidated control bar.
+2.  **Verification**:
+    *   **Expected Result**:
+        *   "Previous" and "Next" buttons should navigate through cards correctly. Their disabled states for single-card decks or at ends of deck should work.
+        *   "Incorrect" and "Correct" buttons should correctly mark answers, update stats, and their disabled states (e.g., after answering) should function as before.
+        *   No change in logical functionality is expected, only layout and styling.
+
+## Notes
+- Test across various mobile viewport sizes (e.g., iPhone SE, iPhone Pro Max, common Android sizes).
+- Check for any unintended layout shifts or style overrides affecting other parts of the study page or application.
