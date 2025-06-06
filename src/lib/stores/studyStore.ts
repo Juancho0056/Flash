@@ -25,6 +25,10 @@ export interface CollectionWithFlashcards extends Collection {
   flashcards: FlashcardStudy[]; // Note: these are PrismaFlashcard, not FlashcardStudy initially
 }
 
+// Autosave configuration
+let autosaveIntervalId: ReturnType<typeof setInterval> | null = null; // Or number | null
+const AUTOSAVE_INTERVAL_MS = 30000; // 30 seconds
+
 // State for the active study session
 const initialStudyState = {
   flashcards: [] as FlashcardStudy[], // This will hold FlashcardStudy objects
@@ -216,6 +220,43 @@ export async function loadCollectionForStudy(collectionData: CollectionWithFlash
   isFilteredViewActive.set(false);
   isUnansweredOnly.set(false); // Ensure this is reset too
   currentIndex.update(n => n);
+
+  // Add event listeners for page visibility and beforeunload
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    window.addEventListener('visibilitychange', handlePageVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    // Clear previous autosave interval if any and start a new one
+    if (autosaveIntervalId) {
+      clearInterval(autosaveIntervalId);
+    }
+    autosaveIntervalId = setInterval(() => {
+      if (get(activeCollection) && !get(isReviewMode)) {
+        console.log('Autosaving progress...');
+        saveProgressForCurrentCollection();
+      }
+    }, AUTOSAVE_INTERVAL_MS);
+  }
+}
+
+// Event handler for page visibility change
+function handlePageVisibilityChange() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+    if (get(activeCollection) && !get(isReviewMode)) {
+      console.log('Page hidden, saving progress...');
+      saveProgressForCurrentCollection();
+    }
+  }
+}
+
+// Event handler for beforeunload
+function handleBeforeUnload() {
+  if (get(activeCollection) && !get(isReviewMode)) {
+    console.log('Before unload, saving progress...');
+    saveProgressForCurrentCollection();
+    // Note: browsers might not guarantee completion of async operations here,
+    // but fetch with keepalive (used by saveStudyProgress) has a good chance.
+  }
 }
 
 // Function to update flip state of a card
@@ -683,6 +724,14 @@ export async function restartSessionForCurrentCollection(collectionId: string): 
     // Decide if to proceed with local reset if API fails. For now, proceeding.
   }
 
+  // Clear autosave interval during restart
+  if (typeof window !== 'undefined') {
+    if (autosaveIntervalId) {
+      clearInterval(autosaveIntervalId);
+      autosaveIntervalId = null;
+    }
+  }
+
   currentIndex.set(0);
   correctAnswers.set(0);
   incorrectAnswers.set(0);
@@ -719,6 +768,20 @@ export async function restartSessionForCurrentCollection(collectionId: string): 
 
 // Reset store to initial state (typically when navigating away or changing collections fundamentally)
 export function resetStudyState() {
+  // Remove event listeners when study state is reset
+  if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+    window.removeEventListener('visibilitychange', handlePageVisibilityChange);
+    window.removeEventListener('beforeunload',handleBeforeUnload);
+  }
+
+  // Clear autosave interval
+  if (typeof window !== 'undefined') {
+    if (autosaveIntervalId) {
+      clearInterval(autosaveIntervalId);
+      autosaveIntervalId = null;
+    }
+  }
+
   currentFlashcards.set(initialStudyState.flashcards);
   activeCollection.set(initialStudyState.activeCollection);
   currentIndex.set(initialStudyState.currentIndex);
