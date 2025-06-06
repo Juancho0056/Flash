@@ -1,4 +1,3 @@
-<!-- src/routes/study/+page.svelte -->
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { get } from 'svelte/store'; // Added get
@@ -543,10 +542,10 @@
 	{#if isLoadingFlashcards}
 		<p class="text-gray-500">Loading flashcards...</p>
 	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
-		<div class="study-area rounded-lg bg-white p-3 shadow-xl sm:p-4 md:p-6 lg:p-8"> {/* Adjusted padding */}
+		<div class="study-area rounded-lg bg-white p-3 shadow-xl sm:p-4 md:p-6 lg:p-8">
 			<!-- Button for Mobile to toggle stats -->
 			<button
-				class="mb-2 w-full rounded bg-blue-500 px-4 py-2 text-sm text-white hover:bg-blue-600 md:mb-4 md:hidden" /* Adjusted margin */
+				class="mb-2 w-full rounded bg-blue-500 px-4 py-2 text-sm text-white hover:bg-blue-600 md:mb-4 md:hidden"
 				on:click={() => (showMobileStats = !showMobileStats)}
 			>
 				{showMobileStats ? 'Hide' : 'View'} Session Progress
@@ -575,8 +574,9 @@
 				</p>
 			{/if}
 
-			{/* Container for Card Count and Filter Controls */}
-			<div class="mb-4 flex flex-col items-start gap-2 pt-4 md:flex-row md:items-center md:justify-between">
+			<div
+				class="mb-4 flex flex-col items-start gap-2 pt-4 md:flex-row md:items-center md:justify-between"
+			>
 				<p class="text-sm text-gray-600">
 					Card {$currentIndex + 1} of {$totalFlashcards}
 					{#if $activeCollection.name}in "{$activeCollection.name}"{/if}
@@ -587,7 +587,6 @@
 					{/if}
 				</p>
 
-				{/* Filter Controls Button Group */}
 				<div class="flex flex-wrap justify-start gap-2 md:justify-end">
 					<button
 						on:click={handleShuffle}
@@ -621,9 +620,9 @@
 				</div>
 			</div>
 
-			<div class="mb-4 h-1.5 w-full rounded-full bg-gray-200"> {/* Thinner progress bar */}
+			<div class="mb-4 h-1.5 w-full rounded-full bg-gray-200">
 				<div
-					class="h-1.5 rounded-full bg-blue-600 transition-all duration-300" /* Thinner progress bar */
+					class="h-1.5 rounded-full bg-blue-600 transition-all duration-300"
 					style="width: {$progressPercentage}%"
 				></div>
 			</div>
@@ -631,13 +630,13 @@
 			{#if $currentCard}
 				{#if $currentCard}
 					<div
-						class="card-wrapper mx-auto flex w-full flex-grow flex-col items-center justify-center transition-all duration-300 ease-in-out min-h-[60vh] md:min-h-[260px] md:h-auto md:max-w-xl lg:max-w-2xl" /* Adjusted min-height */
+						class="card-wrapper mx-auto flex min-h-[60vh] w-full flex-grow flex-col items-center justify-center transition-all duration-300 ease-in-out md:h-auto md:min-h-[260px] md:max-w-xl lg:max-w-2xl"
 						class:border-green-500={answerFeedback === 'correct'}
 						class:border-red-500={answerFeedback === 'incorrect'}
 						class:shadow-green-xl={answerFeedback === 'correct'}
 						class:shadow-red-xl={answerFeedback === 'incorrect'}
 						class:border-4={answerFeedback !== null}
-						>
+					>
 						<Card
 							front={$currentCard.question}
 							back={$currentCard.answer}
@@ -679,7 +678,7 @@
 					</div>
 
 					<!-- Score display -->
-					<div class="my-3 text-center md:my-4"> {/* Adjusted margin */}
+					<div class="my-3 text-center md:my-4">
 						<p class="mb-1 text-xl font-bold text-indigo-600">Score: {$currentScore}</p>
 						<p class="text-md">{$correctAnswers} Correct, {$incorrectAnswers} Incorrect</p>
 					</div>
@@ -695,7 +694,11 @@
 						>
 							<span class="md:hidden">
 								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-									<path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
+									<path
+										fill-rule="evenodd"
+										d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
+										clip-rule="evenodd"
+									/>
 								</svg>
 							</span>
 							<span class="hidden md:inline">Previous</span>
@@ -704,13 +707,24 @@
 						<!-- Incorrect Button -->
 						<button
 							on:click={() => handleMarkAnswer(false)}
-							disabled={!$currentCard || $currentCard.flipped || ($currentCard.answeredInSession && !$currentCard.failedInSession)}
+							disabled={!$currentCard ||
+								$currentCard.flipped ||
+								($currentCard.answeredInSession && !$currentCard.failedInSession)}
 							class="flex-grow rounded-md bg-red-500 p-3 text-white transition-colors hover:bg-red-600 disabled:opacity-50 md:flex-grow-0 md:px-4 md:py-3"
 							aria-label="Mark as incorrect"
 						>
 							<span class="mx-auto md:hidden">
-								<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-									<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									class="h-6 w-6"
+									viewBox="0 0 20 20"
+									fill="currentColor"
+								>
+									<path
+										fill-rule="evenodd"
+										d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+										clip-rule="evenodd"
+									/>
 								</svg>
 							</span>
 							<span class="hidden md:inline">Incorrect</span>
@@ -719,13 +733,24 @@
 						<!-- Correct Button -->
 						<button
 							on:click={() => handleMarkAnswer(true)}
-							disabled={!$currentCard || $currentCard.flipped || ($currentCard.answeredInSession && !$currentCard.failedInSession)}
+							disabled={!$currentCard ||
+								$currentCard.flipped ||
+								($currentCard.answeredInSession && !$currentCard.failedInSession)}
 							class="flex-grow rounded-md bg-green-500 p-3 text-white transition-colors hover:bg-green-600 disabled:opacity-50 md:flex-grow-0 md:px-4 md:py-3"
 							aria-label="Mark as correct"
 						>
 							<span class="mx-auto md:hidden">
-								<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-									<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									class="h-6 w-6"
+									viewBox="0 0 20 20"
+									fill="currentColor"
+								>
+									<path
+										fill-rule="evenodd"
+										d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+										clip-rule="evenodd"
+									/>
 								</svg>
 							</span>
 							<span class="hidden md:inline">Correct</span>
@@ -740,7 +765,11 @@
 						>
 							<span class="md:hidden">
 								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-									<path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+									<path
+										fill-rule="evenodd"
+										d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+										clip-rule="evenodd"
+									/>
 								</svg>
 							</span>
 							<span class="hidden md:inline">Next</span>
