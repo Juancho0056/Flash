@@ -34,7 +34,6 @@
 						>
 					</div>
 				{/if}
-
 				<button
 					on:click={() => (isMobileMenuOpen = !isMobileMenuOpen)}
 					aria-label="Toggle menu"

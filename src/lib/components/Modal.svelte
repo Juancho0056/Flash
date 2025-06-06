@@ -11,6 +11,7 @@
 	export let reviewText = '';
 	export let isLoading = false; // For showing loading state on confirm button
 	export let disableConfirm = false;
+	export let showConfirmButton = true; // New prop to control confirm button visibility
 	const dispatch = createEventDispatcher();
 
 	function handleConfirm() {
@@ -75,6 +76,7 @@
 						{reviewText}
 					</button>
 				{/if}
+				{#if showConfirmButton}
 				<button
 					on:click={handleConfirm}
 					disabled={isLoading || disableConfirm}
@@ -106,6 +108,7 @@
 						{confirmText}
 					{/if}
 				</button>
+				{/if}
 			</div>
 		</div>
 	</div>
