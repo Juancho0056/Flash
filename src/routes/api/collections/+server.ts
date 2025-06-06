@@ -2,7 +2,8 @@
 import type { RequestHandler } from '@sveltejs/kit';
 import { prisma } from '$lib/db';
 import { json, error } from '@sveltejs/kit';
-
+import { Prisma } from '@prisma/client';
+import { $Enums } from '@prisma/client';
 interface PrismaError {
 	code?: string;
 	meta?: {
@@ -15,12 +16,62 @@ interface SvelteKitError extends Error {
 }
 
 // GET /api/collections - Get all collections
-export const GET: RequestHandler = async () => {
+export const GET: RequestHandler = async (event) => {
 	try {
+		const userId = event.locals.user?.id;
+		let masteredCollectionIds = new Set<string>();
+		const collectionLastStudiedMap = new Map<string, string>();
+		console.log('userid',userId);
+		if (userId) {
+			// Fetch mastered collection IDs
+			const sessions = await prisma.studySessionRecord.findMany({
+				where: {
+					userId,
+					status: 'COMPLETED'
+				},
+				select: {
+					originalCollectionId: true,
+					correctAnswers: true,
+					incorrectAnswers: true,
+					originalCollectionSize: true
+				}
+			});
+
+			masteredCollectionIds = new Set(
+				sessions
+					.filter(
+						(session) =>
+							session.correctAnswers === session.originalCollectionSize &&
+							session.incorrectAnswers === 0
+					)
+					.map((session) => session.originalCollectionId)
+			);
+			console.log('masteredCollectionIds', masteredCollectionIds);
+
+			// Fetch last studied times
+			const lastStudiedSessions = await prisma.studySessionRecord.groupBy({
+				by: ['originalCollectionId'],
+				where: { userId: userId },
+				_max: { sessionEndTime: true },
+			});
+			lastStudiedSessions.forEach(record => {
+				if (record._max.sessionEndTime) {
+					collectionLastStudiedMap.set(record.originalCollectionId, record._max.sessionEndTime.toISOString());
+				}
+			});
+		}
+
 		const collections = await prisma.collection.findMany({
 			include: { _count: { select: { flashcards: true } } },
 		});
-		return json(collections);
+
+		const collectionsWithDetails = collections.map(collection => ({
+			...collection,
+			isMastered: userId ? masteredCollectionIds.has(collection.id) : false,
+			lastStudiedIso: collectionLastStudiedMap.get(collection.id) || null,
+		}));
+
+		return json(collectionsWithDetails);
 	} catch (e: unknown) {
 		console.error('Error fetching collections:', e);
 		throw error(500, 'Failed to fetch collections');
@@ -37,18 +88,21 @@ export const POST: RequestHandler = async ({ request }) => {
 			throw error(400, 'Collection name is required');
 		}
 
-		const createData: { name: string; cefrLevel?: string } = {
-			name: name,
-		};
-
+		let cefrValue: $Enums.CefrLevel | undefined = undefined;
 		if (cefrLevel) {
-			// Basic validation could be done here, e.g. check if cefrLevel is one of "A1", "A2", etc.
-			// For now, assuming client sends valid string or Prisma handles enum conversion/error.
-			createData.cefrLevel = cefrLevel;
+			if (!Object.values($Enums.CefrLevel).includes(cefrLevel as $Enums.CefrLevel)) {
+				throw error(400, 'Invalid CEFR level. Must be one of: A1, A2, B1, B2, C1, C2');
+			}
+			cefrValue = cefrLevel as $Enums.CefrLevel;
 		}
 
+		const createData: Prisma.CollectionCreateInput = {
+			name,
+			cefrLevel: cefrValue
+		};
+
 		const newCollection = await prisma.collection.create({
-			data: createData,
+			data: createData
 		});
 
 		return json(newCollection, { status: 201 });

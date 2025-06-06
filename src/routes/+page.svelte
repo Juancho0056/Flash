@@ -4,7 +4,7 @@
 	import Card from '$lib/components/Card.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { toast } from '$lib/toastStore'; // Import toast store
-	import { getAllLastStudiedTimestamps } from '$lib/services/collectionMetaService';
+	// import { getAllLastStudiedTimestamps } from '$lib/services/collectionMetaService'; // REMOVED
 	// import type { CollectionTimestamps } from '$lib/services/collectionMetaService'; // Type import if needed
 
 	interface Flashcard extends PrismaFlashcard {
@@ -14,6 +14,8 @@
 	interface CollectionWithCount extends Collection {
 		_count?: { flashcards: number };
 		flashcards?: Flashcard[];
+		isMastered?: boolean;
+		lastStudiedIso?: string | null; // Add this
 	}
 
 	let collections: CollectionWithCount[] = [];
@@ -22,7 +24,7 @@
 	let exportLayout: 4 | 6 | 9 = 6;
 	let isLoadingCollections = true;
 	let isLoadingFlashcards = false;
-	let collectionLastStudied: Record<string, number> = {};
+	// let collectionLastStudied: Record<string, number> = {}; // REMOVED
 
 	let isModalOpen = false;
 	let modalConfig = { title: '', message: '', confirmText: 'Delete', itemType: '' };
@@ -64,6 +66,7 @@
 		// successMessage = null; // Clear messages when loading
 		// errorMessage = null;
 		try {
+			console.log('fetch');
 			const response = await fetch(`/api/collections/${collectionId}`);
 			if (!response.ok) {
 				const errorData = await response
@@ -189,10 +192,10 @@
 		}
 	}
 
-	function formatLastStudied(timestamp: number | undefined | null): string {
-		if (!timestamp) return 'Not studied yet';
+	function formatLastStudied(isoString: string | undefined | null): string {
+		if (!isoString) return 'Not studied yet';
 
-		const date = new Date(timestamp);
+		const date = new Date(isoString);
 		const today = new Date();
 		const yesterday = new Date(today);
 		yesterday.setDate(today.getDate() - 1);
@@ -209,43 +212,45 @@
 
 	onMount(async () => {
 		await fetchCollections();
-		if (typeof window !== 'undefined') {
-			collectionLastStudied = getAllLastStudiedTimestamps();
-		}
+		// if (typeof window !== 'undefined') { // REMOVED
+		// 	collectionLastStudied = getAllLastStudiedTimestamps(); // REMOVED
+		// } // REMOVED
 	});
 
 	function selectAll() {
-		const updated = selectedCollection?.flashcards?.map(f => ({ ...f, selected: true })) || [];
-		selectedFlashcardIdsForExport = updated.map(f => f.id);
+		const updated = selectedCollection?.flashcards?.map((f) => ({ ...f, selected: true })) || [];
+		selectedFlashcardIdsForExport = updated.map((f) => f.id);
 		if (selectedCollection) selectedCollection.flashcards = updated;
 	}
 
 	function selectFirst(n: number) {
 		const selected = selectedCollection?.flashcards?.slice(0, n) || [];
-		const updated = selectedCollection?.flashcards?.map(f => ({ ...f, selected: selected.includes(f) })) || [];
-		selectedFlashcardIdsForExport = selected.map(f => f.id);
+		const updated =
+			selectedCollection?.flashcards?.map((f) => ({ ...f, selected: selected.includes(f) })) || [];
+		selectedFlashcardIdsForExport = selected.map((f) => f.id);
 		if (selectedCollection) selectedCollection.flashcards = updated;
 	}
 
 	function selectLast(n: number) {
 		const selected = selectedCollection?.flashcards?.slice(-n) || [];
-		const updated = selectedCollection?.flashcards?.map(f => ({ ...f, selected: selected.includes(f) })) || [];
-		selectedFlashcardIdsForExport = selected.map(f => f.id);
+		const updated =
+			selectedCollection?.flashcards?.map((f) => ({ ...f, selected: selected.includes(f) })) || [];
+		selectedFlashcardIdsForExport = selected.map((f) => f.id);
 		if (selectedCollection) selectedCollection.flashcards = updated;
 	}
 
 	function selectRandom(n: number) {
 		const shuffled = [...(selectedCollection?.flashcards || [])].sort(() => 0.5 - Math.random());
 		const selected = shuffled.slice(0, n);
-		const updated = selectedCollection?.flashcards?.map(f => ({ ...f, selected: selected.includes(f) })) || [];
-		selectedFlashcardIdsForExport = selected.map(f => f.id);
+		const updated =
+			selectedCollection?.flashcards?.map((f) => ({ ...f, selected: selected.includes(f) })) || [];
+		selectedFlashcardIdsForExport = selected.map((f) => f.id);
 		if (selectedCollection) selectedCollection.flashcards = updated;
 	}
 
-  $: selectedCollection?.flashcards?.forEach(flashcard => {
-    flashcard.selected = selectedFlashcardIdsForExport.includes(flashcard.id);
-  });
-
+	$: selectedCollection?.flashcards?.forEach((flashcard) => {
+		flashcard.selected = selectedFlashcardIdsForExport.includes(flashcard.id);
+	});
 </script>
 
 <svelte:head>
@@ -287,7 +292,6 @@
 	{:else}
 		<div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
 			{#each collections as collection (collection.id)}
-				
 				<div
 					class="cursor-pointer rounded-xl border border-gray-200 bg-gray-50 p-6 hover:shadow-md"
 					class:ring-2={selectedCollection?.id === collection.id}
@@ -302,17 +306,20 @@
 				>
 					<h2 class="text-xl font-semibold text-gray-800">{collection.name}</h2>
 					<p class="text-sm text-gray-600">{collection._count?.flashcards || 0} flashcard(s)</p>
-					
-					<p class="text-xs text-gray-500 mt-1">{formatLastStudied(collectionLastStudied[collection.id])}</p>
+
+					<p class="mt-1 text-xs text-gray-500">{formatLastStudied(collection.lastStudiedIso)}</p>
+					{#if collection.isMastered}
+						<p class="mt-1 text-xs font-semibold text-green-600">🏆 Mastered!</p>
+					{/if}
 					<a
 						href="/collections/{collection.id}"
 						on:click|stopPropagation
 						class="mt-1 inline-block text-xs text-blue-600 hover:underline">View Collection</a
 					>
 					<a
-					href={`/admin/collections/${collection.id}/import`}
-					on:click|stopPropagation
-					class="mt-1 inline-block text-xs text-indigo-600 hover:underline"
+						href={`/admin/collections/${collection.id}/import`}
+						on:click|stopPropagation
+						class="mt-1 inline-block text-xs text-indigo-600 hover:underline"
 					>
 						📥 Import Flashcards
 					</a>
@@ -331,33 +338,53 @@
 				Flashcards in "{selectedCollection.name}"
 			</h2>
 			<!-- Controles de selección rápida -->
-			<div class="flex gap-3 flex-wrap my-4">
-			<button on:click={selectAll} class="btn bg-blue-500 text-white px-3 py-1 rounded cursor-pointer">Select All</button>
-			<button on:click={() => selectFirst(10)} class="btn bg-green-500 text-white px-3 py-1 rounded cursor-pointer">First 10</button>
-			<button on:click={() => selectLast(10)} class="btn bg-purple-500 text-white px-3 py-1 rounded cursor-pointer">Last 10</button>
-			<button on:click={() => selectRandom(10)} class="btn bg-indigo-500 text-white px-3 py-1 rounded cursor-pointer">Random 10</button>
+			<div class="my-4 flex flex-wrap gap-3">
+				<button
+					on:click={selectAll}
+					class="btn cursor-pointer rounded bg-blue-500 px-3 py-1 text-white">Select All</button
+				>
+				<button
+					on:click={() => selectFirst(10)}
+					class="btn cursor-pointer rounded bg-green-500 px-3 py-1 text-white">First 10</button
+				>
+				<button
+					on:click={() => selectLast(10)}
+					class="btn cursor-pointer rounded bg-purple-500 px-3 py-1 text-white">Last 10</button
+				>
+				<button
+					on:click={() => selectRandom(10)}
+					class="btn cursor-pointer rounded bg-indigo-500 px-3 py-1 text-white">Random 10</button
+				>
 			</div>
 
 			<div class="rounded-xl border border-gray-200 bg-gray-50 p-6 shadow">
 				<h3 class="mb-3 text-lg font-semibold text-gray-700">Export Options</h3>
 				<div class="flex flex-wrap items-end gap-4">
-				<div class="flex flex-col">
-					<label for="layout" class="text-sm text-gray-600 mb-1">Cards per page:</label>
-					<select bind:value={exportLayout} class="rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:ring focus:ring-indigo-500 text-sm cursor-pointer">
-					<option value={4}>4 (2x2)</option>
-					<option value={6}>6 (3x2)</option>
-					<option value={9}>9 (3x3)</option>
-					</select>
-				</div>
-				<button on:click={handleExportPdf} disabled={selectedFlashcardIdsForExport.length === 0 || isLoadingFlashcards} class="cursor-pointer rounded bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-white text-sm font-medium shadow disabled:cursor-not-allowed disabled:bg-gray-300">
-					Export Selected to PDF
-				</button>
+					<div class="flex flex-col">
+						<label for="layout" class="mb-1 text-sm text-gray-600">Cards per page:</label>
+						<select
+							bind:value={exportLayout}
+							class="cursor-pointer rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:ring focus:ring-indigo-500"
+						>
+							<option value={4}>4 (2x2)</option>
+							<option value={6}>6 (3x2)</option>
+							<option value={9}>9 (3x3)</option>
+						</select>
+					</div>
+					<button
+						on:click={handleExportPdf}
+						disabled={selectedFlashcardIdsForExport.length === 0 || isLoadingFlashcards}
+						class="cursor-pointer rounded bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+					>
+						Export Selected to PDF
+					</button>
 				</div>
 				{#if selectedFlashcardIdsForExport.length > 0}
-				<p class="mt-3 text-sm text-gray-600">{selectedFlashcardIdsForExport.length} card(s) selected for export.</p>
+					<p class="mt-3 text-sm text-gray-600">
+						{selectedFlashcardIdsForExport.length} card(s) selected for export.
+					</p>
 				{/if}
 			</div>
-
 
 			{#if isLoadingFlashcards}
 				<p class="text-gray-500">Loading flashcards...</p>
@@ -369,15 +396,15 @@
 					>
 				</p>
 			{:else}
-				 <div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+				<div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
 					{#each selectedCollection.flashcards as flashcard (flashcard.id)}
 						<div
 							class={`flashcard-item flex flex-col rounded-xl p-4 transition-transform duration-200 hover:scale-[1.01] ${
 								flashcard.selected
-								? 'ring-2 ring-indigo-500 bg-indigo-50 border-transparent'
-								: 'border border-gray-200 bg-white shadow-sm'
+									? 'border-transparent bg-indigo-50 ring-2 ring-indigo-500'
+									: 'border border-gray-200 bg-white shadow-sm'
 							}`}
->
+						>
 							<div class="mb-3 flex items-center">
 								<div class="flex items-center">
 									<input
@@ -385,14 +412,13 @@
 										id="select-{flashcard.id}"
 										checked={flashcard.selected}
 										on:change={() => toggleFlashcardSelection(flashcard.id)}
-										class="mr-2 h-4 w-4 text-indigo-600 rounded focus:ring focus:ring-indigo-500 border-gray-300"
+										class="mr-2 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring focus:ring-indigo-500"
 									/>
 									<label for="select-{flashcard.id}" class="text-sm font-medium text-gray-700"
-										></label
-									>
+									></label>
 								</div>
 							</div>
-							<div class="flex-grow mb-3 flex items-center justify-center">
+							<div class="mb-3 flex flex-grow items-center justify-center">
 								<Card
 									front={flashcard.question}
 									back={flashcard.answer}
@@ -414,7 +440,7 @@
 								>
 								<button
 									on:click={() => openDeleteConfirmModal(flashcard.id, flashcard.question)}
-									class="rounded bg-red-500 hover:bg-red-600 px-3 py-1 text-xs font-medium text-white cursor-pointer"
+									class="cursor-pointer rounded bg-red-500 px-3 py-1 text-xs font-medium text-white hover:bg-red-600"
 									title="Delete this flashcard">🗑️ Delete</button
 								>
 							</div>
