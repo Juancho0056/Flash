@@ -336,3 +336,91 @@ To verify the correct implementation and usability of recent enhancements to the
 - Test Focus Mode on various mobile screen sizes to ensure the card and essential controls are well-centered and usable.
 - Pay attention to any layout shifts when toggling Focus Mode.
 - **Regarding FM3 (Disabling Focus Mode)**: The current implementation hides the focus mode button itself when focus mode is active. This means the primary way to *exit* focus mode would be to toggle it *before* the button disappears (if the UI updates fast enough) or implicitly when the session ends/resets (e.g., `loadCollectionForStudy` or `resetStudyState` which set `isFocusModeActive` to `false`). An alternative explicit exit (like an ESC key or a visible 'exit focus' affordance) is not part of the current scope but should be noted if usability issues arise. For testing, ensure that if focus mode *is* active and the session resets or a new collection loads, focus mode is correctly turned off.
+
+## Part 5: Study Page UX Enhancements (Phase 3)
+
+### Objective
+To verify the correct implementation and usability of recent UX enhancements to the study page: automatic scrolling for the current card, refined UI after session completion, and modal display for statistics on mobile.
+
+### Prerequisites
+- Application running locally or on a test environment.
+- A user account with some collections and flashcards.
+- Browser developer tools for simulating different screen sizes and inspecting elements.
+
+### Test Cases - scrollIntoView for Current Flashcard
+
+#### Test Case SIV1: Scroll on Card Navigation (Next/Previous)
+1.  **Action**: Open the study page with a collection of multiple cards. Ensure the page is scrollable (e.g., by making the browser window shorter or if other content pushes the card down).
+2.  **Action**: Click "Next Card" or "Previous Card".
+3.  **Verification**:
+    *   **Expected Result**: The `card-wrapper` (the area containing the flashcard) should smoothly scroll to be centered (or close to centered) in the viewport. This should not happen if Focus Mode is active.
+
+#### Test Case SIV2: Scroll on Initial Collection Load
+1.  **Action**: Load a collection for study (either by selecting from dropdown or via URL parameter). Ensure the page is initially positioned such that the card area would not be centered without scrolling.
+2.  **Verification**:
+    *   **Expected Result**: Upon the first card appearing, the `card-wrapper` should smoothly scroll to the center of the viewport (unless Focus Mode is active).
+
+#### Test Case SIV3: Scroll on Shuffle
+1.  **Action**: In a study session with multiple cards, click the "Shuffle" button.
+2.  **Verification**:
+    *   **Expected Result**: After the cards are shuffled and the new current card is displayed, the `card-wrapper` should smoothly scroll to the center (unless Focus Mode is active).
+
+#### Test Case SIV4: No Scroll in Focus Mode
+1.  **Action**: Enable Focus Mode.
+2.  **Action**: Navigate between cards using "Next" or "Previous".
+3.  **Verification**:
+    *   **Expected Result**: The specific `scrollIntoView` logic (with `block: 'center'`) should NOT be triggered. Focus Mode has its own layout which should already ensure the card is central; the explicit scrolling might cause jitter or conflict.
+
+### Test Cases - Refined Post-Collection Completion UI
+
+#### Test Case PCC1: UI Elements Hidden on Session Completion
+1.  **Action**: Start a study session and answer all cards to complete it. The session summary modal should appear.
+2.  **Verification**:
+    *   **Expected Result**: Behind the modal (or if the modal is closed without starting a new session immediately), the following UI elements on the study page should be hidden:
+        *   Consolidated control bar (Next/Prev/Correct/Incorrect buttons).
+        *   "View Session Progress" button (mobile).
+        *   `SessionStats` component (if it was visible on desktop).
+        *   Auto-speak toggle.
+        *   "Card X of Y" text and filter/shuffle/focus mode buttons.
+        *   Progress bar.
+        *   Main score display.
+        *   Individual card stats ("Viewed/Correct") and "Mark as difficult" button.
+
+#### Test Case PCC2: UI Elements Reappear After Modal Action (e.g., Study Again)
+1.  **Action**: After completing a session (PCC1), interact with the session summary modal by choosing an option that starts a new session (e.g., "Study Again (Same Collection)" or "Review Failed Only").
+2.  **Verification**:
+    *   **Expected Result**: The UI elements listed in PCC1 should reappear as appropriate for the start of a new session (e.g., controls active, progress bar at start, stats reset or relevant to the new mode). `$sessionCompleted` should be false.
+
+#### Test Case PCC3: UI Elements Reappear After Modal Close (Free Review)
+1.  **Action**: After completing a session (PCC1), close the session summary modal using its "Close" or "Cancel" button (which should set `$sessionCompleted` to `false` to allow free review of cards).
+2.  **Verification**:
+    *   **Expected Result**: The UI elements listed in PCC1 should reappear, allowing the user to freely browse the completed deck (though answer buttons would be disabled for already answered cards). The state should reflect that the session *was* completed but is now being reviewed passively.
+
+### Test Cases - Improved Mobile Statistics Display (Modal)
+
+#### Test Case MSD1: Modal Trigger (Mobile)
+1.  **Action**: On a mobile screen, navigate to the study page and start a session.
+2.  **Action**: Tap the "View Session Progress" button.
+3.  **Verification**:
+    *   **Expected Result**: A modal dialog should appear, titled "Session Statistics". The `SessionStats` component content should be displayed within this modal.
+
+#### Test Case MSD2: Modal Close
+1.  **Action**: With the statistics modal open (MSD1), tap the "Close" button (or equivalent cancel action) in the modal.
+2.  **Verification**:
+    *   **Expected Result**: The modal should close, and the underlying study page should be visible and interactive.
+
+#### Test Case MSD3: Stats Content in Modal
+1.  **Action**: Open the statistics modal on mobile.
+2.  **Action**: Interact with the study session (e.g., answer a few cards). Then, reopen the statistics modal.
+3.  **Verification**:
+    *   **Expected Result**: The statistics displayed within the modal should be up-to-date, reflecting the current state of the session. `SessionStats` component is rendering correctly within the modal context.
+
+#### Test Case MSD4: Desktop Stats Display (Inline)
+1.  **Action**: On a desktop screen, navigate to the study page and start a session.
+2.  **Verification**:
+    *   **Expected Result**: The `SessionStats` component should be displayed inline (not in a modal) as before, provided Focus Mode is not active and the session is not completed. The "View Session Progress" button (for mobile modal) should not be visible.
+
+## Notes
+- Test `scrollIntoView` on pages with varying amounts of content to ensure it behaves well.
+- For post-collection completion, verify the state of `$sessionCompleted` using dev tools if needed to understand UI transitions.
+- Ensure the mobile stats modal is well-styled and readable.

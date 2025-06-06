@@ -49,7 +49,7 @@
 	import { afterUpdate } from 'svelte'; // Import afterUpdate for reactive updates
 	import { ttsSettings, updateTTSSettings } from '$lib/stores/ttsStore'; // Import TTS store and updater
 
-	let showMobileStats = false; // For toggling stats visibility on mobile
+	let showStatsModal = false; // For stats modal on mobile
 	let collectionPerfectToastShownThisSession = false;
 
 	let collections: Collection[] = []; // For selection dropdown
@@ -494,12 +494,23 @@
 		on:review={handleReviewOnlyFailed}
 		on:cancel={handleFreeMode}
 	>
-		{#if allBadgesUnlocked}
+		{#if !$sessionCompleted && $correctAnswers > 0 && $incorrectAnswers === 0 && !$isFilteredViewActive && !$isReviewMode /* Condition for perfect badge inside modal, if needed, or remove if toast is enough */}
 			<p class="mt-4 rounded-md bg-green-100 p-2 text-sm text-green-700">
-				🏆 Has completado esta colección perfectamente y ya obtuviste todos los logros disponibles.
-				¡Bien hecho!
+				🏆 You're doing great! Aim for a perfect session!
 			</p>
 		{/if}
+	</Modal>
+
+	<Modal
+		bind:isOpen={showStatsModal}
+		title="Session Statistics"
+		on:cancel={() => showStatsModal = false}
+		showConfirmButton={false}
+		cancelText="Close"
+	>
+		<div class="stats-modal-content">
+			<SessionStats />
+		</div>
 	</Modal>
 
 	<h1 class="mb-6 text-2xl font-bold text-gray-800 md:text-3xl">Study Mode</h1>
@@ -550,17 +561,17 @@
 			class:flex-col={$isFocusModeActive}
 			class:justify-center={$isFocusModeActive}
 		>
-			{#if !$isFocusModeActive}
-			<!-- Button for Mobile to toggle stats -->
+			{#if !$isFocusModeActive && !$sessionCompleted}
+			<!-- Button for Mobile to open stats modal -->
 			<button
-				class="mb-2 w-full rounded bg-blue-500 px-4 py-2 text-sm text-white hover:bg-blue-600 md:mb-4 md:hidden" /* Adjusted margin */
-				on:click={() => (showMobileStats = !showMobileStats)}
+				class="mb-2 w-full rounded bg-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-300 md:mb-4 md:hidden"
+				on:click={() => showStatsModal = true}
 			>
-				{showMobileStats ? 'Hide' : 'View'} Session Progress
+				View Session Progress
 			</button>
 
-			<!-- Stats Display -->
-			<div class="${showMobileStats ? 'block' : 'hidden'} md:block">
+			<!-- Desktop Stats Display (inline) -->
+			<div class="hidden md:block">
 				<SessionStats />
 			</div>
 			{/if}
@@ -568,7 +579,7 @@
 			{/* Auto-speak toggle is now inside card-wrapper */}
 			{/* Static "allBadgesUnlocked" message removed, replaced by toast logic */}
 
-			{#if !$isFocusModeActive}
+			{#if !$isFocusModeActive && !$sessionCompleted}
 			{/* Container for Card Count and Filter Controls */}
 			<div class="mb-4 flex flex-col items-start gap-2 pt-4 md:flex-row md:items-center md:justify-between">
 				<p class="text-sm text-gray-600">
@@ -635,7 +646,7 @@
 			</div>
 			{/if}
 
-			{#if !$isFocusModeActive}
+			{#if !$isFocusModeActive && !$sessionCompleted}
 			<div class="mb-4 h-1.5 w-full rounded-full bg-gray-200"> {/* Thinner progress bar */}
 				<div
 					class="h-1.5 rounded-full bg-blue-600 transition-all duration-300" /* Thinner progress bar */
@@ -655,7 +666,7 @@
 						class:shadow-red-xl={answerFeedback === 'incorrect'}
 						class:border-4={answerFeedback !== null}
 						>
-						{#if !$isFocusModeActive}
+						{#if !$isFocusModeActive && !$sessionCompleted}
 						<div class="absolute top-2 right-2 z-10 flex items-center space-x-1 rounded bg-white bg-opacity-75 p-1.5 shadow">
 							<label for="autoPlayToggle" class="flex cursor-pointer items-center space-x-1 text-xs text-gray-700 hover:text-gray-900">
 								<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-600 sm:h-5 sm:w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -684,7 +695,7 @@
 						/>
 					</div>
 
-					{#if !$isFocusModeActive}
+					{#if !$isFocusModeActive && !$sessionCompleted}
 					<div class="flex items-center justify-center text-xs text-gray-500">
 						<p class="mr-4">
 							Viewed: {$currentCard.timesViewed}, Correct: {$currentCard.timesCorrect}
@@ -714,7 +725,7 @@
 					</div>
 					{/if}
 
-					{#if !$isFocusModeActive}
+					{#if !$isFocusModeActive && !$sessionCompleted}
 					<!-- Score display -->
 					<div class="my-3 text-center md:my-4"> {/* Adjusted margin */}
 						<p class="mb-1 text-xl font-bold text-indigo-600">Score: {$currentScore}</p>
@@ -722,6 +733,7 @@
 					</div>
 					{/if}
 
+					{#if !$sessionCompleted}
 					<!-- Consolidated Control Bar -->
 					<div class="flex w-full items-center justify-between space-x-1 sm:space-x-2 {$isFocusModeActive ? 'py-4' : 'mt-4 md:mt-8'}">
 						<!-- Previous Button -->
