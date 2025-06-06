@@ -1,6 +1,6 @@
 <!-- src/components/Card.svelte -->
 <script lang="ts">
-  import { createEventDispatcher, onMount, afterUpdate } from 'svelte';
+  import { createEventDispatcher, afterUpdate } from 'svelte'; // Removed onMount
   import { ttsSettings } from '../stores/ttsStore'; // Import the TTS store
 
   export let pronunciation: string | null = null;
@@ -41,13 +41,13 @@
     return html.replace(/<[^>]+>/g, '');
   }
 
-  let currentAutoPlay: boolean;
+  // let currentAutoPlay: boolean; // REMOVED
   let currentDefaultLang: string;
   let currentPlaybackSpeed: number;
   let prevFlipped = flipped; // Ensure this is declared
 
   ttsSettings.subscribe(settings => {
-    currentAutoPlay = settings.autoPlay; // Keep existing
+    // currentAutoPlay = settings.autoPlay; // REMOVED
     currentDefaultLang = settings.defaultLang; // Keep existing
     currentPlaybackSpeed = settings.playbackSpeed; // NEW
   });
@@ -119,24 +119,14 @@
   }
 
   // Remove auto-speak from onMount for 'front'
-  onMount(() => {
-    // Original autoPlay logic removed or commented out:
-    // if (currentAutoPlay && front) {
-    //   setTimeout(() => {
-    //     speak(stripHtml(front), cardLang || currentDefaultLang, currentPlaybackSpeed);
-    //   }, 100);
-    // }
-  });
+  // onMount(() => { // REMOVED onMount block
+    // All auto-play logic previously here was commented out and is now fully removed.
+  // });
 
   // Remove auto-speak from afterUpdate for 'back'
   afterUpdate(() => {
     if (flipped !== prevFlipped) {
-      // Original autoPlay logic removed or commented out:
-      // if (flipped && currentAutoPlay && back) {
-      //   setTimeout(() => {
-      //     speak(stripHtml(back), cardLang || currentDefaultLang, currentPlaybackSpeed);
-      //   }, 100);
-      // }
+      // All auto-play logic previously here was commented out and is now fully removed.
       prevFlipped = flipped;
     }
   });

@@ -72,7 +72,7 @@
 	ttsSettings.subscribe(settings => {
 		isPlaying = settings.isPlaying;
 		playbackSpeed = settings.playbackSpeed;
-		autoPlayTTS = settings.autoPlay; // Ensure this is the existing autoPlayTTS from the outer scope
+		// autoPlayTTS = settings.autoPlay; // Ensure this is the existing autoPlayTTS from the outer scope - REMOVED
 	});
 
 	// Handler for playback speed change
@@ -611,15 +611,15 @@
 	}
 
 	// Reactive variable for the autoPlay checkbox
-	let autoPlayTTS: boolean;
-	ttsSettings.subscribe((settings) => {
-		autoPlayTTS = settings.autoPlay;
-	});
+	// let autoPlayTTS: boolean; // REMOVED
+	// ttsSettings.subscribe((settings) => { // REMOVED Block
+	// 	autoPlayTTS = settings.autoPlay;
+	// });
 
-	function handleAutoPlayChange(event: Event) {
-		const target = event.target as HTMLInputElement;
-		updateTTSSettings({ autoPlay: target.checked });
-	}
+	// function handleAutoPlayChange(event: Event) { // REMOVED
+	// 	const target = event.target as HTMLInputElement;
+	// 	updateTTSSettings({ autoPlay: target.checked });
+	// }
 
 	// Determine card language
 	// TODO: This should ideally come from collection settings or individual card metadata
@@ -721,41 +721,7 @@
 			{#if $currentCard}
 				<!-- Contenedor de la tarjeta -->
 				<div class="relative flex flex-col items-center justify-center gap-4">
-					{#if !$isFocusModeActive && !$sessionCompleted}
-						<!-- TTS toggle -->
-						<div
-							class="bg-opacity-75 absolute top-2 right-2 z-10 flex items-center space-x-1 rounded bg-white p-1.5 shadow"
-						>
-							<label
-								for="autoPlayToggle"
-								class="flex cursor-pointer items-center space-x-1 text-xs text-gray-700 hover:text-gray-900"
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									class="h-4 w-4 text-gray-600"
-									viewBox="0 0 20 20"
-									fill="currentColor"
-								>
-									<path
-										d="M5 7a1 1 0 00-2 0v6a1 1 0 102 0V7zm12.293 1.293a1 1 0 010 1.414L15 12l2.293 2.293a1 1 0 01-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0z"
-									/>
-									<path
-										fill-rule="evenodd"
-										d="M10 3a1 1 0 011 1v12a1 1 0 01-2 0V4a1 1 0 011-1z"
-										clip-rule="evenodd"
-									/>
-								</svg>
-								<span class="hidden pr-1 sm:inline">Speak</span>
-							</label>
-							<input
-								type="checkbox"
-								id="autoPlayToggle"
-								bind:checked={autoPlayTTS}
-								on:change={handleAutoPlayChange}
-								class="h-4 w-4 cursor-pointer rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-							/>
-						</div>
-					{/if}
+					<!-- TTS toggle REMOVED -->
 
 					<!-- Tarjeta principal -->
 					<!-- Playback Controls -->

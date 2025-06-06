@@ -1,10 +1,10 @@
 import { writable } from 'svelte/store';
 
 export interface TTSSettings {
-  autoPlay: boolean;
+  // autoPlay: boolean; // <-- REMOVE THIS LINE
   defaultLang: string;
-  isPlaying: boolean;
-  playbackSpeed: number;
+  isPlaying: boolean; // Added in previous feature
+  playbackSpeed: number; // Added in previous feature
   // voice?: string; // Future enhancement: allow selecting a specific voice
   // rate?: number;  // Future enhancement: control speech rate
   // pitch?: number; // Future enhancement: control speech pitch
@@ -15,7 +15,7 @@ const TTS_SETTINGS_STORAGE_KEY = 'tts_settings';
 function loadTTSSettings(): TTSSettings {
   if (typeof window === 'undefined') {
     // SSR Guard: Return defaults
-    return { autoPlay: false, defaultLang: 'en-US', isPlaying: false, playbackSpeed: 1 };
+    return { defaultLang: 'en-US', isPlaying: false, playbackSpeed: 1 };
   }
 
   const storedSettingsJson = localStorage.getItem(TTS_SETTINGS_STORAGE_KEY);
@@ -24,7 +24,6 @@ function loadTTSSettings(): TTSSettings {
       const parsedSettings = JSON.parse(storedSettingsJson);
       // Merge with defaults to ensure all properties are present
       return {
-        autoPlay: parsedSettings.autoPlay || false,
         defaultLang: parsedSettings.defaultLang || 'en-US',
         isPlaying: parsedSettings.isPlaying || false,
         playbackSpeed: parsedSettings.playbackSpeed || 1,
@@ -33,11 +32,11 @@ function loadTTSSettings(): TTSSettings {
       console.error('Error parsing TTS settings from localStorage:', e);
       localStorage.removeItem(TTS_SETTINGS_STORAGE_KEY); // Clear corrupted data
       // Fallback to defaults
-      return { autoPlay: false, defaultLang: 'en-US', isPlaying: false, playbackSpeed: 1 };
+      return { defaultLang: 'en-US', isPlaying: false, playbackSpeed: 1 };
     }
   }
   // No settings found in localStorage, return defaults
-  return { autoPlay: false, defaultLang: 'en-US', isPlaying: false, playbackSpeed: 1 };
+  return { defaultLang: 'en-US', isPlaying: false, playbackSpeed: 1 };
 }
 
 const initialState: TTSSettings = loadTTSSettings();
