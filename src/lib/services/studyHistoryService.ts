@@ -1,4 +1,5 @@
 // src/lib/services/studyHistoryService.ts
+import prisma from '$lib/db';
 
 // Data payload for saving a session (client-side structure before sending to API)
 export interface StudySessionData {
@@ -82,6 +83,41 @@ export async function getStudyHistory(userId?: string): Promise<StudySessionHist
     } catch (error) {
         console.error('Error fetching study history from server:', error);
         return [];
+    }
+}
+
+/**
+ * Calculates the total score for a user by summing the maximum scores
+ * achieved in each unique collection they have studied.
+ * This function is intended for server-side use.
+ * @param userId The ID of the user.
+ * @returns The total calculated score, or 0 in case of an error or no scores.
+ */
+export async function calculateUserTotalScore(userId: string): Promise<number> {
+    try {
+        const groupedScores = await prisma.studySessionRecord.groupBy({
+            by: ['originalCollectionId'],
+            where: {
+                userId: userId,
+            },
+            _max: {
+                score: true,
+            },
+        });
+
+        if (!groupedScores || groupedScores.length === 0) {
+            return 0;
+        }
+
+        let totalScore = 0;
+        for (const group of groupedScores) {
+            totalScore += group._max.score || 0; // Add score, treating null as 0
+        }
+
+        return totalScore;
+    } catch (error) {
+        console.error(`Error calculating total score for user ${userId}:`, error);
+        return 0; // Return 0 in case of any error
     }
 }
 
