@@ -26,6 +26,7 @@
 				<li><a href="/" class="hover:text-gray-300">Home</a></li>
 				{#if data.user}
 					<li><span class="text-gray-400">Logged in as {data.user.email}</span></li>
+					<li><span class="text-yellow-400 font-bold">Total Score: {data.totalAccumulatedScore}</span></li>
 					<li>
 						<button on:click={handleLogout} class="underline hover:text-gray-300">Logout</button>
 					</li>
