@@ -1,5 +1,5 @@
 // src/lib/services/studyHistoryService.ts
-import prisma from '$lib/db';
+import {prisma} from '$lib/db';
 
 // Data payload for saving a session (client-side structure before sending to API)
 export interface StudySessionData {
