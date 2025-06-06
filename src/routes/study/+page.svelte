@@ -575,8 +575,9 @@
 				</p>
 			{/if}
 
-			{/* Container for Card Count and Filter Controls */}
-			<div class="mb-4 flex flex-col items-start gap-2 pt-4 md:flex-row md:items-center md:justify-between">
+			<div
+				class="mb-4 flex flex-col items-start gap-2 pt-4 md:flex-row md:items-center md:justify-between"
+			>
 				<p class="text-sm text-gray-600">
 					Card {$currentIndex + 1} of {$totalFlashcards}
 					{#if $activeCollection.name}in "{$activeCollection.name}"{/if}
@@ -587,7 +588,6 @@
 					{/if}
 				</p>
 
-				{/* Filter Controls Button Group */}
 				<div class="flex flex-wrap justify-start gap-2 md:justify-end">
 					<button
 						on:click={handleShuffle}
@@ -621,9 +621,9 @@
 				</div>
 			</div>
 
-			<div class="mb-4 h-1.5 w-full rounded-full bg-gray-200"> {/* Thinner progress bar */}
+			<div class="mb-4 h-1.5 w-full rounded-full bg-gray-200">
 				<div
-					class="h-1.5 rounded-full bg-blue-600 transition-all duration-300" /* Thinner progress bar */
+					class="h-1.5 rounded-full bg-blue-600 transition-all duration-300"
 					style="width: {$progressPercentage}%"
 				></div>
 			</div>
@@ -631,13 +631,13 @@
 			{#if $currentCard}
 				{#if $currentCard}
 					<div
-						class="card-wrapper mx-auto flex w-full flex-grow flex-col items-center justify-center transition-all duration-300 ease-in-out min-h-[70vh] md:min-h-[260px] md:h-auto md:max-w-xl lg:max-w-2xl"
+						class="card-wrapper mx-auto flex min-h-[70vh] w-full flex-grow flex-col items-center justify-center transition-all duration-300 ease-in-out md:h-auto md:min-h-[260px] md:max-w-xl lg:max-w-2xl"
 						class:border-green-500={answerFeedback === 'correct'}
 						class:border-red-500={answerFeedback === 'incorrect'}
 						class:shadow-green-xl={answerFeedback === 'correct'}
 						class:shadow-red-xl={answerFeedback === 'incorrect'}
 						class:border-4={answerFeedback !== null}
-						>
+					>
 						<Card
 							front={$currentCard.question}
 							back={$currentCard.answer}
@@ -694,17 +694,28 @@
 						>
 							Previous
 						</button>
-						<div class="flex w-full justify-around space-x-2 md:w-auto md:justify-start md:space-x-3"> {/* Adjusted for mobile spacing */}
+						<div
+							class="flex w-full justify-around space-x-2 md:w-auto md:justify-start md:space-x-3"
+						>
 							<button
 								on:click={() => handleMarkAnswer(false)}
 								disabled={!$currentCard ||
 									$currentCard.flipped ||
 									($currentCard.answeredInSession && !$currentCard.failedInSession)}
-								class="flex-grow rounded-md bg-red-500 p-3 text-sm text-white transition-colors hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:px-4 md:py-3 md:flex-grow-0"
+								class="flex-grow rounded-md bg-red-500 p-3 text-sm text-white transition-colors hover:bg-red-600 focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:flex-grow-0 md:px-4 md:py-3"
 							>
 								<span class="md:hidden">
-									<svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-										<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										class="mx-auto h-5 w-5"
+										viewBox="0 0 20 20"
+										fill="currentColor"
+									>
+										<path
+											fill-rule="evenodd"
+											d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+											clip-rule="evenodd"
+										/>
 									</svg>
 								</span>
 								<span class="hidden md:inline">Incorrect</span>
@@ -714,11 +725,20 @@
 								disabled={!$currentCard ||
 									$currentCard.flipped ||
 									($currentCard.answeredInSession && !$currentCard.failedInSession)}
-								class="flex-grow rounded-md bg-green-500 p-3 text-sm text-white transition-colors hover:bg-green-600 focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:px-4 md:py-3 md:flex-grow-0"
+								class="flex-grow rounded-md bg-green-500 p-3 text-sm text-white transition-colors hover:bg-green-600 focus:ring-2 focus:ring-green-400 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:flex-grow-0 md:px-4 md:py-3"
 							>
 								<span class="md:hidden">
-									<svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-										<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										class="mx-auto h-5 w-5"
+										viewBox="0 0 20 20"
+										fill="currentColor"
+									>
+										<path
+											fill-rule="evenodd"
+											d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+											clip-rule="evenodd"
+										/>
 									</svg>
 								</span>
 								<span class="hidden md:inline">Correct</span>
