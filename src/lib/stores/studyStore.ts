@@ -48,6 +48,7 @@ const initialStudyState = {
 // Writable stores
 export const currentFlashcards = writable<FlashcardStudy[]>(initialStudyState.flashcards);
 export const activeCollection = writable<CollectionWithFlashcards | null>(initialStudyState.activeCollection);
+export const isFocusModeActive = writable<boolean>(false); // Focus Mode Store
 export const currentIndex = writable<number>(initialStudyState.currentIndex);
 export const correctAnswers = writable<number>(initialStudyState.correctAnswers);
 export const incorrectAnswers = writable<number>(initialStudyState.incorrectAnswers);
@@ -219,6 +220,7 @@ export async function loadCollectionForStudy(collectionData: CollectionWithFlash
   // showOnlyFailed.set(false); // REMOVED
   isFilteredViewActive.set(false);
   isUnansweredOnly.set(false); // Ensure this is reset too
+  isFocusModeActive.set(false); // Reset focus mode on new collection load
   currentIndex.update(n => n);
 
   // Add event listeners for page visibility and beforeunload
@@ -793,6 +795,7 @@ export function resetStudyState() {
   isFilteredViewActive.set(initialStudyState.isFilteredViewActive);
   isUnansweredOnly.set(initialStudyState.isUnansweredOnly);
   isReviewMode.set(initialStudyState.isReviewMode); // Also reset review mode
+  isFocusModeActive.set(false); // Reset focus mode on study state reset
   masterSessionCards.set([]); // Clear master session cards
   sessionStartTime.set(Date.now()); // Reset start time
   studyStats.set({ // Reset study stats to default
@@ -806,6 +809,9 @@ export function resetStudyState() {
   });
 }
 
+export function toggleFocusMode() {
+	isFocusModeActive.update((active) => !active);
+}
 
 export async function saveProgressForCurrentCollection(): Promise<void> {
 	console.log('saveProgressForCurrentCollection');

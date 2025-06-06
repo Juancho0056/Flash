@@ -1,3 +1,4 @@
+<!-- src/routes/study/+page.svelte -->
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { get } from 'svelte/store'; // Added get
@@ -37,7 +38,9 @@
 		incrementTimesViewedFor,
 		// showOnlyFailed, // REMOVED: Store now handles this internally
 		triggerIncompleteSessionSave,
-		restartSessionForCurrentCollection
+		restartSessionForCurrentCollection,
+		isFocusModeActive, // Focus Mode
+		toggleFocusMode // Focus Mode
 	} from '$lib/stores/studyStore';
 	import type { CollectionWithFlashcards, FlashcardStudy } from '$lib/stores/studyStore';
 	import Modal from '$lib/components/Modal.svelte'; // Import Modal
@@ -46,9 +49,8 @@
 	import { afterUpdate } from 'svelte'; // Import afterUpdate for reactive updates
 	import { ttsSettings, updateTTSSettings } from '$lib/stores/ttsStore'; // Import TTS store and updater
 
-	let hasShownPerfectBadgeMessage = false;
-	let showBadgeMessage = false;
 	let showMobileStats = false; // For toggling stats visibility on mobile
+	let collectionPerfectToastShownThisSession = false;
 
 	let collections: Collection[] = []; // For selection dropdown
 	let selectedCollectionId: string | undefined = undefined;
@@ -86,24 +88,21 @@
 		console.trace(); // imprime quién cambió el valor
 	});
 
-	afterUpdate(async () => {
-		if (hasShownPerfectBadgeMessage || showBadgeMessage) return;
-
-		await tick(); // Espera que todo se reactive
-
-		const completed = get(sessionCompleted);
-		const cards = get(currentFlashcards);
-
-		if (!completed || cards.length === 0) return;
-
-		const allCorrect = cards.every((fc) => fc.answeredInSession && !fc.failedInSession);
-
-		if (allCorrect) {
-			console.log('🏅 Mostrando mensaje de logro por colección perfecta');
-			showBadgeMessage = true;
-			hasShownPerfectBadgeMessage = true;
-		}
-	});
+	// Reactive statement for showing "Collection Perfect" toast
+	$: if (
+		$sessionCompleted &&
+		$correctAnswers > 0 &&
+		$incorrectAnswers === 0 &&
+		!$isFilteredViewActive &&
+		!$isReviewMode &&
+		!collectionPerfectToastShownThisSession &&
+		$activeCollection
+	) {
+		toast.success(
+			`🏆 ¡Colección "${$activeCollection.name}" perfecta! Has dominado todas las tarjetas. ¡Bien hecho!`
+		);
+		collectionPerfectToastShownThisSession = true;
+	}
 
 	async function handleFilterUnansweredCards() {
 		filterUnansweredCards(); // Store now sets isUnansweredOnly and isFilteredViewActive
@@ -139,6 +138,7 @@
 			resetStudyState();
 			return;
 		}
+		collectionPerfectToastShownThisSession = false; // Reset toast flag when loading a new collection
 		isLoadingFlashcards = true;
 		errorMessage = null;
 
@@ -434,6 +434,7 @@
 		const id = $activeCollection?.id;
 		if (!id) return;
 
+		collectionPerfectToastShownThisSession = false; // Reset toast flag
 		restartSessionForCurrentCollection(id);
 		showModal = false;
 	}
@@ -451,8 +452,6 @@
 		showModal = false;
 		// ❗️ No tocar sessionCompleted aquí
 	}
-
-	$: allBadgesUnlocked = $sessionCompleted && $correctAnswers > 0 && $incorrectAnswers === 0;
 
 	// Reactive variable for the autoPlay checkbox
 	let autoPlayTTS: boolean;
@@ -521,6 +520,7 @@
 			>
 		</p>
 	{:else}
+		{#if !$isFocusModeActive}
 		<div class="mb-6">
 			<label for="collectionSelect" class="mb-1 block text-sm font-medium text-gray-700"
 				>Choose a collection:</label
@@ -537,15 +537,23 @@
 				{/each}
 			</select>
 		</div>
+		{/if}
 	{/if}
 
 	{#if isLoadingFlashcards}
 		<p class="text-gray-500">Loading flashcards...</p>
 	{:else if selectedCollectionId && $activeCollection && $totalFlashcards > 0}
-		<div class="study-area rounded-lg bg-white p-3 shadow-xl sm:p-4 md:p-6 lg:p-8">
+		<div
+			class="study-area rounded-lg bg-white p-3 shadow-xl sm:p-4 md:p-6 lg:p-8"
+			class:min-h-[calc(100vh-12rem)]={$isFocusModeActive}
+			class:flex={$isFocusModeActive}
+			class:flex-col={$isFocusModeActive}
+			class:justify-center={$isFocusModeActive}
+		>
+			{#if !$isFocusModeActive}
 			<!-- Button for Mobile to toggle stats -->
 			<button
-				class="mb-2 w-full rounded bg-blue-500 px-4 py-2 text-sm text-white hover:bg-blue-600 md:mb-4 md:hidden"
+				class="mb-2 w-full rounded bg-blue-500 px-4 py-2 text-sm text-white hover:bg-blue-600 md:mb-4 md:hidden" /* Adjusted margin */
 				on:click={() => (showMobileStats = !showMobileStats)}
 			>
 				{showMobileStats ? 'Hide' : 'View'} Session Progress
@@ -555,28 +563,14 @@
 			<div class="${showMobileStats ? 'block' : 'hidden'} md:block">
 				<SessionStats />
 			</div>
-
-			<div class="my-4 flex items-center justify-end">
-				<label for="autoPlayToggle" class="mr-2 text-sm text-gray-700">Auto-speak cards:</label>
-				<input
-					type="checkbox"
-					id="autoPlayToggle"
-					bind:checked={autoPlayTTS}
-					on:change={handleAutoPlayChange}
-					class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-				/>
-			</div>
-
-			{#if allBadgesUnlocked}
-				<p class="mt-4 rounded-md bg-green-100 p-2 text-sm text-green-700">
-					🏆 Has completado esta colección perfectamente y ya obtuviste todos los logros
-					disponibles. ¡Bien hecho!
-				</p>
 			{/if}
 
-			<div
-				class="mb-4 flex flex-col items-start gap-2 pt-4 md:flex-row md:items-center md:justify-between"
-			>
+			{/* Auto-speak toggle is now inside card-wrapper */}
+			{/* Static "allBadgesUnlocked" message removed, replaced by toast logic */}
+
+			{#if !$isFocusModeActive}
+			{/* Container for Card Count and Filter Controls */}
+			<div class="mb-4 flex flex-col items-start gap-2 pt-4 md:flex-row md:items-center md:justify-between">
 				<p class="text-sm text-gray-600">
 					Card {$currentIndex + 1} of {$totalFlashcards}
 					{#if $activeCollection.name}in "{$activeCollection.name}"{/if}
@@ -587,6 +581,7 @@
 					{/if}
 				</p>
 
+				{/* Filter Controls Button Group */}
 				<div class="flex flex-wrap justify-start gap-2 md:justify-end">
 					<button
 						on:click={handleShuffle}
@@ -617,26 +612,66 @@
 							Unanswered Only
 						</button>
 					{/if}
+					<button
+						on:click={toggleFocusMode}
+						title={$isFocusModeActive ? 'Disable Focus Mode' : 'Enable Focus Mode'}
+						class="rounded-md border border-gray-300 p-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1"
+					>
+						{#if $isFocusModeActive}
+							<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+								<path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+								<path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+								<path fill-rule="evenodd" d="M16.707 3.293a1 1 0 010 1.414L5.414 16.707a1 1 0 01-1.414-1.414L15.293 3.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+							</svg>
+						{:else}
+							<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+								<path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+								<path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+							</svg>
+						{/if}
+						<span class="hidden sm:inline ml-1">{$isFocusModeActive ? 'Unfocus' : 'Focus'}</span>
+					</button>
 				</div>
 			</div>
+			{/if}
 
-			<div class="mb-4 h-1.5 w-full rounded-full bg-gray-200">
+			{#if !$isFocusModeActive}
+			<div class="mb-4 h-1.5 w-full rounded-full bg-gray-200"> {/* Thinner progress bar */}
 				<div
-					class="h-1.5 rounded-full bg-blue-600 transition-all duration-300"
+					class="h-1.5 rounded-full bg-blue-600 transition-all duration-300" /* Thinner progress bar */
 					style="width: {$progressPercentage}%"
 				></div>
 			</div>
+			{/if}
 
 			{#if $currentCard}
 				{#if $currentCard}
 					<div
-						class="card-wrapper mx-auto flex min-h-[60vh] w-full flex-grow flex-col items-center justify-center transition-all duration-300 ease-in-out md:h-auto md:min-h-[260px] md:max-w-xl lg:max-w-2xl"
+						class="card-wrapper relative mx-auto flex w-full flex-grow flex-col items-center justify-center transition-all duration-300 ease-in-out min-h-[60vh] md:min-h-[260px] md:h-auto md:max-w-xl lg:max-w-2xl" /* Added relative, Adjusted min-height */
+						class:flex-grow={$isFocusModeActive}
 						class:border-green-500={answerFeedback === 'correct'}
 						class:border-red-500={answerFeedback === 'incorrect'}
 						class:shadow-green-xl={answerFeedback === 'correct'}
 						class:shadow-red-xl={answerFeedback === 'incorrect'}
 						class:border-4={answerFeedback !== null}
-					>
+						>
+						{#if !$isFocusModeActive}
+						<div class="absolute top-2 right-2 z-10 flex items-center space-x-1 rounded bg-white bg-opacity-75 p-1.5 shadow">
+							<label for="autoPlayToggle" class="flex cursor-pointer items-center space-x-1 text-xs text-gray-700 hover:text-gray-900">
+								<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-600 sm:h-5 sm:w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+									<path d="M5 7a1 1 0 00-2 0v6a1 1 0 102 0V7zm12.293 1.293a1 1 0 010 1.414L15 12l2.293 2.293a1 1 0 01-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0z" /> <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v12a1 1 0 01-2 0V4a1 1 0 011-1z" clip-rule="evenodd" />
+								</svg>
+								<span class="hidden pr-1 sm:inline">Speak</span>
+							</label>
+							<input
+								type="checkbox"
+								id="autoPlayToggle"
+								bind:checked={autoPlayTTS}
+								on:change={handleAutoPlayChange}
+								class="h-4 w-4 cursor-pointer rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+							/>
+						</div>
+						{/if}
 						<Card
 							front={$currentCard.question}
 							back={$currentCard.answer}
@@ -649,6 +684,7 @@
 						/>
 					</div>
 
+					{#if !$isFocusModeActive}
 					<div class="flex items-center justify-center text-xs text-gray-500">
 						<p class="mr-4">
 							Viewed: {$currentCard.timesViewed}, Correct: {$currentCard.timesCorrect}
@@ -676,15 +712,18 @@
 							</svg>
 						</button>
 					</div>
+					{/if}
 
+					{#if !$isFocusModeActive}
 					<!-- Score display -->
-					<div class="my-3 text-center md:my-4">
+					<div class="my-3 text-center md:my-4"> {/* Adjusted margin */}
 						<p class="mb-1 text-xl font-bold text-indigo-600">Score: {$currentScore}</p>
 						<p class="text-md">{$correctAnswers} Correct, {$incorrectAnswers} Incorrect</p>
 					</div>
+					{/if}
 
 					<!-- Consolidated Control Bar -->
-					<div class="mt-4 flex w-full items-center justify-between space-x-1 sm:space-x-2 md:mt-8">
+					<div class="flex w-full items-center justify-between space-x-1 sm:space-x-2 {$isFocusModeActive ? 'py-4' : 'mt-4 md:mt-8'}">
 						<!-- Previous Button -->
 						<button
 							on:click={() => handleNavigate('prev')}
@@ -694,11 +733,7 @@
 						>
 							<span class="md:hidden">
 								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-									<path
-										fill-rule="evenodd"
-										d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-										clip-rule="evenodd"
-									/>
+									<path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
 								</svg>
 							</span>
 							<span class="hidden md:inline">Previous</span>
@@ -707,24 +742,13 @@
 						<!-- Incorrect Button -->
 						<button
 							on:click={() => handleMarkAnswer(false)}
-							disabled={!$currentCard ||
-								$currentCard.flipped ||
-								($currentCard.answeredInSession && !$currentCard.failedInSession)}
+							disabled={!$currentCard || $currentCard.flipped || ($currentCard.answeredInSession && !$currentCard.failedInSession)}
 							class="flex-grow rounded-md bg-red-500 p-3 text-white transition-colors hover:bg-red-600 disabled:opacity-50 md:flex-grow-0 md:px-4 md:py-3"
 							aria-label="Mark as incorrect"
 						>
 							<span class="mx-auto md:hidden">
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									class="h-6 w-6"
-									viewBox="0 0 20 20"
-									fill="currentColor"
-								>
-									<path
-										fill-rule="evenodd"
-										d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-										clip-rule="evenodd"
-									/>
+								<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+									<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
 								</svg>
 							</span>
 							<span class="hidden md:inline">Incorrect</span>
@@ -733,24 +757,13 @@
 						<!-- Correct Button -->
 						<button
 							on:click={() => handleMarkAnswer(true)}
-							disabled={!$currentCard ||
-								$currentCard.flipped ||
-								($currentCard.answeredInSession && !$currentCard.failedInSession)}
+							disabled={!$currentCard || $currentCard.flipped || ($currentCard.answeredInSession && !$currentCard.failedInSession)}
 							class="flex-grow rounded-md bg-green-500 p-3 text-white transition-colors hover:bg-green-600 disabled:opacity-50 md:flex-grow-0 md:px-4 md:py-3"
 							aria-label="Mark as correct"
 						>
 							<span class="mx-auto md:hidden">
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									class="h-6 w-6"
-									viewBox="0 0 20 20"
-									fill="currentColor"
-								>
-									<path
-										fill-rule="evenodd"
-										d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-										clip-rule="evenodd"
-									/>
+								<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+									<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
 								</svg>
 							</span>
 							<span class="hidden md:inline">Correct</span>
@@ -765,11 +778,7 @@
 						>
 							<span class="md:hidden">
 								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-									<path
-										fill-rule="evenodd"
-										d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-										clip-rule="evenodd"
-									/>
+									<path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
 								</svg>
 							</span>
 							<span class="hidden md:inline">Next</span>
@@ -782,29 +791,37 @@
 					collection.
 				</p>
 			{:else if !$currentCard}
+				{#if !$isFocusModeActive}
 				<p class="py-10 text-center text-gray-500">
 					Select a collection to start studying or manage your cards.
 				</p>
+				{/if}
 			{:else}
+				{#if !$isFocusModeActive}
 				<p class="py-10 text-center text-yellow-600">
 					{filterActiveMessage}
 				</p>
+				{/if}
 			{/if}
 		</div>
 	{:else if selectedCollectionId && !isLoadingFlashcards && $totalFlashcards === 0}
+		{#if !$isFocusModeActive}
 		<p class="rounded-md border border-yellow-300 bg-yellow-50 p-4 text-gray-600">
 			This collection is empty or no flashcards were loaded.
 			<a href="/admin/new?collectionId={selectedCollectionId}" class="text-blue-500 hover:underline"
 				>Add flashcards to this collection.</a
 			>
 		</p>
+		{/if}
 	{/if}
 
+	{#if !$isFocusModeActive}
 	<div class="mt-2 text-center">
 		<a href="/" class="text-indigo-600 hover:text-indigo-800 hover:underline"
 			>Back to Collections List</a
 		>
 	</div>
+	{/if}
 </div>
 
 <style>

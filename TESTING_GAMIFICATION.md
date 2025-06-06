@@ -216,3 +216,123 @@ To verify that recent UI refinements to the global navbar (mobile) and the study
 ## Notes
 - Test across various mobile viewport sizes (e.g., iPhone SE, iPhone Pro Max, common Android sizes).
 - Check for any unintended layout shifts or style overrides affecting other parts of the study page or application.
+
+## Part 4: Study Page Enhancements (Phase 2)
+
+### Objective
+To verify the correct implementation and usability of recent enhancements to the study page: relocated auto-speak toggle, toast-based badge messages, and the new Focus Mode.
+
+### Prerequisites
+- Application running locally or on a test environment.
+- A user account with some collections and flashcards.
+- Browser developer tools for simulating different screen sizes and inspecting elements.
+
+### Test Cases - Auto-Speak Toggle Relocation
+
+#### Test Case AST1: Toggle Position and Appearance
+1.  **Action**: Navigate to the study page (`/study`) and load a collection.
+2.  **Verification**:
+    *   **Expected Result**: The auto-speak toggle (speaker icon and checkbox/switch, possibly with "Speak" text on slightly larger small screens) should be visible in the top-right area of the flashcard container (`card-wrapper`).
+    *   It should not obscure important card content.
+    *   It should have a slight background if it overlays card imagery, ensuring visibility.
+
+#### Test Case AST2: Toggle Functionality
+1.  **Action**: Click/tap the auto-speak toggle (either the icon, text, or checkbox).
+2.  **Verification**:
+    *   **Expected Result**: The toggle state should change (e.g., checkbox visually checks/unchecks). The `autoPlayTTS` store value in `ttsStore.ts` should update accordingly. If TTS is functional, card auto-speaking behavior should toggle on/off when new cards are displayed or flipped (depending on specific TTS trigger logic).
+3.  **Action**: Refresh the page or navigate away and back to a study session.
+4.  **Verification**:
+    *   **Expected Result**: The toggle should remember its previous state (as it's typically persisted via `ttsStore` and local storage, though this test primarily focuses on the UI element itself).
+
+### Test Cases - Badge Message (Collection Perfect Toast)
+
+#### Test Case BM1: Toast on First Perfection
+1.  **Action**: Start a study session with a small collection (e.g., 2-3 cards).
+2.  **Action**: Answer all cards correctly without any incorrect answers.
+3.  **Verification**:
+    *   **Expected Result**: Upon correctly answering the last card and completing the session perfectly, a success toast notification should appear. The toast should contain a message like "🏆 ¡Colección '[Collection Name]' perfecta! Has dominado todas las tarjetas. ¡Bien hecho!".
+    *   The old static paragraph message for collection perfection should NOT be visible.
+
+#### Test Case BM2: No Toast on Subsequent Views (Same Session State)
+1.  **Action**: After the toast in BM1 appears, navigate to the next/previous card (if possible, though session is complete) or interact with UI elements that don't reset the session.
+2.  **Verification**:
+    *   **Expected Result**: The "Collection Perfect" toast should NOT reappear.
+
+#### Test Case BM3: Toast Reset on New Collection Load
+1.  **Action**: After BM1, load a *different* small collection.
+2.  **Action**: Answer all cards correctly in this new collection.
+3.  **Verification**:
+    *   **Expected Result**: The "Collection Perfect" toast should appear for this new collection.
+
+#### Test Case BM4: Toast Reset on Session Restart
+1.  **Action**: After BM1, use the "Study Again (Same Collection)" or "Restart Session" functionality for the *same* collection.
+2.  **Action**: Answer all cards correctly again.
+3.  **Verification**:
+    *   **Expected Result**: The "Collection Perfect" toast should appear again for this re-perfected session.
+
+#### Test Case BM5: No Toast if Not Perfect
+1.  **Action**: Start a study session. Answer at least one card incorrectly, then complete the session.
+2.  **Verification**:
+    *   **Expected Result**: The "Collection Perfect" toast should NOT appear.
+
+#### Test Case BM6: No Toast in Filtered/Review Modes
+1.  **Action**: Start a study session. Get some cards correct, some incorrect.
+2.  **Action**: Enter "Study Failed Only" mode. Answer all remaining (failed) cards correctly.
+3.  **Verification**:
+    *   **Expected Result**: The "Collection Perfect" toast should NOT appear (as it's a filtered view, not the whole collection initially).
+4.  **Action**: (If applicable) Enter "Review Mode" for a collection and complete it perfectly.
+5.  **Verification**:
+    *   **Expected Result**: The "Collection Perfect" toast should NOT appear.
+
+
+### Test Cases - Focus Mode
+
+#### Test Case FM1: Toggle Button and Initial State
+1.  **Action**: Navigate to the study page and load a collection.
+2.  **Verification**:
+    *   **Expected Result**: A "Focus Mode" toggle button (with an eye icon and/or "Focus" text) should be visible among the control buttons (near Shuffle/Filters). Focus mode should be OFF by default.
+
+#### Test Case FM2: Enabling Focus Mode
+1.  **Action**: Click/tap the "Focus Mode" toggle button.
+2.  **Verification**:
+    *   **Expected Result**:
+        *   The button icon/text should change (e.g., to an eye-slash icon / "Unfocus" text).
+        *   Non-essential UI elements should disappear. This includes:
+            *   Collection selection dropdown.
+            *   "View Session Progress" button / `SessionStats` component.
+            *   Auto-speak toggle (on the card wrapper).
+            *   "Card X of Y" text and the filter/shuffle/focus mode buttons themselves.
+            *   Progress bar.
+            *   Score display area.
+            *   "Back to Collections List" link.
+        *   The flashcard (`Card` component) and the consolidated control bar (Previous, Incorrect, Correct, Next buttons) should remain visible and become the central focus.
+        *   The layout should adjust to center the card and controls, potentially taking more vertical space.
+
+#### Test Case FM3: Disabling Focus Mode
+1.  **Action**: While in Focus Mode, click/tap the (now hidden, so this tests if it reappears correctly or if another mechanism is intended) Focus Mode toggle button again. **Clarification**: The subtask report stated the focus button itself is hidden. This test needs to verify how focus mode is *disabled*. If the button is indeed hidden, this test case needs adjustment (e.g., "Complete the session" or "Reload the collection" to see if focus mode resets). *Self-correction: The focus mode button is part of the group that gets hidden. Focus mode would be disabled by toggling it again *before* it's hidden, or by an alternative method like an ESC key if implemented, or by session reset.* For this test, assume the user toggles it off using the *same button which then hides itself*. The *next* time they enter focus mode, the button would be there again to *initiate* it. The test is more about the *state change* and *UI restoration*.
+2.  **Action (Revised for FM3)**: Enable Focus Mode. Then, to disable it, click the Focus Mode button again (which would have just changed to "Unfocus" or an eye-slash icon).
+3.  **Verification**:
+    *   **Expected Result**: All previously hidden UI elements should reappear. Focus mode should be OFF. The toggle button should revert to its "Enable Focus Mode" state (eye icon / "Focus" text).
+
+#### Test Case FM4: Functionality in Focus Mode
+1.  **Action**: Enable Focus Mode.
+2.  **Action**: Interact with the visible elements:
+    *   Flip the card.
+    *   Answer cards using "Correct" / "Incorrect" buttons.
+    *   Navigate using "Previous" / "Next" buttons.
+3.  **Verification**:
+    *   **Expected Result**: All card interactions and control bar functionalities should work as normal. Stats should still update in the background (verifiable by disabling focus mode).
+
+#### Test Case FM5: Focus Mode State Persistence/Reset
+1.  **Action**: Enable Focus Mode.
+2.  **Action**: Select a new collection to study. (This will require disabling Focus Mode first to access the collection selector).
+3.  **Verification**:
+    *   **Expected Result**: When a new collection is loaded (after Focus Mode was disabled, then collection changed, then new collection loaded), Focus Mode should be OFF by default for the new collection.
+4.  **Action**: Enable Focus Mode for the current collection. Refresh the browser page.
+5.  **Verification**:
+    *   **Expected Result**: After page refresh and session resumption (if applicable for the collection), Focus Mode should be OFF by default. (As per `isFocusModeActive.set(false)` in `loadCollectionForStudy`).
+
+## Notes
+- Test Focus Mode on various mobile screen sizes to ensure the card and essential controls are well-centered and usable.
+- Pay attention to any layout shifts when toggling Focus Mode.
+- **Regarding FM3 (Disabling Focus Mode)**: The current implementation hides the focus mode button itself when focus mode is active. This means the primary way to *exit* focus mode would be to toggle it *before* the button disappears (if the UI updates fast enough) or implicitly when the session ends/resets (e.g., `loadCollectionForStudy` or `resetStudyState` which set `isFocusModeActive` to `false`). An alternative explicit exit (like an ESC key or a visible 'exit focus' affordance) is not part of the current scope but should be noted if usability issues arise. For testing, ensure that if focus mode *is* active and the session resets or a new collection loads, focus mode is correctly turned off.
