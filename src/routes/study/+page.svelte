@@ -103,111 +103,180 @@
 	let isPlaybackLoopRunning = false;
 
 	async function startCardSequencePlayback() {
-		if (isPlaybackLoopRunning) return;
-		isPlaybackLoopRunning = true;
+    console.log('[study/+page.svelte] startCardSequencePlayback() called.');
+    console.log('[study/+page.svelte] Initial state: isPlaybackLoopRunning:', isPlaybackLoopRunning, 'isPlaying:', get(ttsSettings).isPlaying);
 
-		const currentCardsInStore = get(currentFlashcards);
-		if (!currentCardsInStore || currentCardsInStore.length === 0) {
-			pausePlayback(); // Ensure isPlaying is false if no cards
-			isPlaybackLoopRunning = false;
-			return;
-		}
+    if (isPlaybackLoopRunning) {
+      console.log('[study/+page.svelte] Loop already running, exiting.');
+      return;
+    }
+    isPlaybackLoopRunning = true;
+    console.log('[study/+page.svelte] Set isPlaybackLoopRunning = true.');
 
-		// Create a shuffled deck for playback
-		shuffledPlaybackdeck = [...currentCardsInStore]
-			.map(value => ({ value, sort: Math.random() }))
-			.sort((a, b) => a.sort - b.sort)
-			.map(({ value }) => value);
+    const currentCardsInStore = get(currentFlashcards);
+    console.log('[study/+page.svelte] currentCardsInStore length:', currentCardsInStore?.length);
 
-		currentPlaybackIndex = 0;
+    if (!currentCardsInStore || currentCardsInStore.length === 0) {
+      console.log('[study/+page.svelte] No cards in store. Stopping playback.');
+      pausePlayback();
+      isPlaybackLoopRunning = false;
+      console.log('[study/+page.svelte] Set isPlaybackLoopRunning = false (no cards).');
+      return;
+    }
 
-		while (currentPlaybackIndex < shuffledPlaybackdeck.length && get(ttsSettings).isPlaying) {
-			const cardToPlay = shuffledPlaybackdeck[currentPlaybackIndex];
+    shuffledPlaybackdeck = [...currentCardsInStore]
+      .map(value => ({ value, sort: Math.random() }))
+      .sort((a, b) => a.sort - b.sort)
+      .map(({ value }) => value);
+    console.log('[study/+page.svelte] shuffledPlaybackdeck created, length:', shuffledPlaybackdeck.length, 'First card ID:', shuffledPlaybackdeck[0]?.id);
 
-			// Find the original index of this card in the non-shuffled list to update UI correctly
-			const originalIndex = currentCardsInStore.findIndex(fc => fc.id === cardToPlay.id);
-			if (originalIndex !== -1) {
-				currentIndex.set(originalIndex); // This will make $currentCard reactive and update the UI
-			} else {
-				// Card not found in original list, something is wrong. Skip or stop.
-				console.error("Card from shuffled deck not found in original store. Skipping.");
-				currentPlaybackIndex++;
-				continue;
-			}
+    currentPlaybackIndex = 0;
+    console.log('[study/+page.svelte] currentPlaybackIndex reset to 0.');
 
-			await tick(); // Wait for $currentCard to update and Card component to be ready
+    while (currentPlaybackIndex < shuffledPlaybackdeck.length && get(ttsSettings).isPlaying) {
+      console.log(`[study/+page.svelte] Loop iteration: currentPlaybackIndex = ${currentPlaybackIndex}, isPlaying = ${get(ttsSettings).isPlaying}`);
+      const cardToPlay = shuffledPlaybackdeck[currentPlaybackIndex];
+      console.log('[study/+page.svelte] cardToPlay ID:', cardToPlay?.id, 'Question:', cardToPlay?.question);
 
-			if (cardComponent && typeof cardComponent.speakCardDetails === 'function') {
-				// Ensure card is initially showing the front for playback
-				if (get(currentCard)?.flipped) {
-						flipCard(cardToPlay.id, false);
-						await tick(); // Wait for flip to visually complete
-				}
+      const originalIndex = currentCardsInStore.findIndex(fc => fc.id === cardToPlay.id);
+      console.log('[study/+page.svelte] originalIndex found:', originalIndex);
 
-				try {
-					await cardComponent.speakCardDetails({
-						frontText: cardToPlay.question,
-						backText: cardToPlay.answer,
-						exampleText: cardToPlay.example || '',
-						pronunciationText: cardToPlay.pronunciation || '',
-						lang: cardLanguage || get(ttsSettings).defaultLang, // cardLanguage from component scope
-						speed: get(ttsSettings).playbackSpeed,
-						delay: 750 // Standard delay between parts, from Card.svelte
-					});
+      if (originalIndex !== -1) {
+        console.log('[study/+page.svelte] Setting currentIndex store to:', originalIndex);
+        currentIndex.set(originalIndex);
+      } else {
+        console.error("[study/+page.svelte] Card from shuffled deck not found in original store. Skipping card ID:", cardToPlay?.id);
+        currentPlaybackIndex++;
+        continue;
+      }
 
-					// If still playing after speech has finished
-					if (get(ttsSettings).isPlaying) {
-						// Flip to back if not already (speakCardDetails doesn't flip)
-						if (!get(currentCard)?.flipped) {
-								flipCard(cardToPlay.id, true);
-								await tick();
-						}
-						// Wait a bit before moving to the next card
-						await new Promise(r => setTimeout(r, 1500));
-						currentPlaybackIndex++;
-					} else {
-						// Playback was paused/stopped during speech
-						break;
-					}
-				} catch (error) {
-					console.error("Error during card speech:", error);
-					// Optionally, stop playback on error
-					// pausePlayback();
-					break;
-				}
-			} else {
-				console.warn('Card component or speakCardDetails not available. Stopping playback.');
-				pausePlayback();
-				break;
-			}
-		}
+      console.log('[study/+page.svelte] Awaiting tick() for UI update after currentIndex.set.');
+      await tick();
+      console.log('[study/+page.svelte] tick() complete. Current card in store ID:', get(currentCard)?.id);
 
-		// If loop finished (either all cards played or paused)
-		if (get(ttsSettings).isPlaying && currentPlaybackIndex >= shuffledPlaybackdeck.length) {
-			// All cards played
-			toast.success("Playback finished!"); // Optional feedback
-			pausePlayback(); // Set isPlaying to false
-		}
-		isPlaybackLoopRunning = false;
-	}
+      // ---- START NEW SECTION FOR cardComponent READINESS ----
+      let cardComponentReady = false;
+      let retries = 0;
+      const maxRetries = 10; // Try for up to 1 second (10 * 100ms)
+
+      while(!cardComponentReady && retries < maxRetries && get(ttsSettings).isPlaying) {
+        if (cardComponent && typeof cardComponent.speakCardDetails === 'function') {
+          cardComponentReady = true;
+          console.log(`[study/+page.svelte] cardComponent is ready after ${retries} retries.`);
+        } else {
+          retries++;
+          console.warn(`[study/+page.svelte] cardComponent not ready or speakCardDetails not a function. Retry ${retries}/${maxRetries}. cardComponent:`, cardComponent);
+          await new Promise(r => setTimeout(r, 100)); // Wait 100ms
+          await tick(); // Allow Svelte to potentially update bindings
+        }
+      }
+
+      if (!cardComponentReady) {
+        console.error('[study/+page.svelte] Card component or speakCardDetails not available after retries. Stopping playback for this card/session.');
+        // Option 1: Skip to next card if you want the loop to continue
+        // currentPlaybackIndex++;
+        // console.log('[study/+page.svelte] Skipping to next card.');
+        // continue;
+        // Option 2: Stop playback entirely
+        pausePlayback();
+        isPlaybackLoopRunning = false; // Ensure loop terminates
+        console.log('[study/+page.svelte] Playback stopped due to cardComponent not being ready.');
+        break; // Exit the while loop
+      }
+      // ---- END NEW SECTION FOR cardComponent READINESS ----
+
+      // Now we are sure cardComponent and speakCardDetails are available if we haven't break/continued
+      console.log('[study/+page.svelte] cardComponent defined?', !!cardComponent); // Should be true here
+      if (cardComponent) {
+          console.log('[study/+page.svelte] typeof cardComponent.speakCardDetails:', typeof cardComponent.speakCardDetails); // Should be function
+      }
+
+
+      if (get(currentCard)?.flipped) {
+        console.log('[study/+page.svelte] Card ID', get(currentCard)?.id, 'is flipped, unflipping before speech.');
+        flipCard(cardToPlay.id, false);
+        console.log('[study/+page.svelte] Awaiting tick() after unflipping card ID', cardToPlay.id);
+        await tick();
+      }
+
+      const speakParams = {
+        frontText: cardToPlay.question,
+        backText: cardToPlay.answer,
+        exampleText: cardToPlay.example || '',
+        pronunciationText: cardToPlay.pronunciation || '',
+        lang: cardLanguage || get(ttsSettings).defaultLang,
+        speed: get(ttsSettings).playbackSpeed,
+        delay: 750
+      };
+      console.log('[study/+page.svelte] Calling cardComponent.speakCardDetails for card ID', cardToPlay.id, 'with params:', JSON.stringify(speakParams));
+      try {
+        await cardComponent.speakCardDetails(speakParams);
+        console.log('[study/+page.svelte] cardComponent.speakCardDetails finished for card ID', cardToPlay.id);
+
+        if (get(ttsSettings).isPlaying) {
+          // ... (rest of the logic for flipping card, delay, incrementing index) ...
+          console.log('[study/+page.svelte] Still playing. Flipping card ID', cardToPlay.id, 'to back.');
+                  if (!get(currentCard)?.flipped) {
+                      flipCard(cardToPlay.id, true);
+                      console.log('[study/+page.svelte] Awaiting tick() after flipping card ID', cardToPlay.id, 'to back.');
+                      await tick();
+                  }
+                  console.log('[study/+page.svelte] Waiting 1500ms before next card.');
+                  await new Promise(r => setTimeout(r, 1500));
+                  currentPlaybackIndex++;
+                  console.log('[study/+page.svelte] Incremented currentPlaybackIndex to:', currentPlaybackIndex);
+        } else {
+          console.log('[study/+page.svelte] Playback was paused/stopped during/after speech for card ID', cardToPlay.id);
+          break;
+        }
+      } catch (error) {
+        console.error("[study/+page.svelte] Error during cardComponent.speakCardDetails for card ID", cardToPlay.id, ":", error);
+        // Decide if to stop all playback or just skip the card
+        // For now, let's log and try to continue with the next card if possible,
+        // but if speakCardDetails itself is broken, this might not be a good idea.
+        // A safer bet might be to pause playback.
+        toast.error(`Error speaking card: ${cardToPlay.question.substring(0,20)}...`);
+        // pausePlayback(); // Option: stop all playback
+        // break;
+        // Option: try to skip to next card
+        currentPlaybackIndex++;
+        console.log('[study/+page.svelte] Error speaking card, trying to skip to next card. New index:', currentPlaybackIndex);
+        continue; // Try next card in the loop
+      }
+      // The original 'else' for cardComponent not being defined is now handled by the retry loop above.
+    }
+
+    console.log('[study/+page.svelte] Loop finished. currentPlaybackIndex:', currentPlaybackIndex, 'shuffledPlaybackdeck.length:', shuffledPlaybackdeck.length, 'isPlaying:', get(ttsSettings).isPlaying);
+    if (get(ttsSettings).isPlaying && currentPlaybackIndex >= shuffledPlaybackdeck.length) {
+      console.log('[study/+page.svelte] All cards played.');
+      toast.success("Playback finished!");
+      pausePlayback();
+    } else if (!get(ttsSettings).isPlaying) {
+      console.log('[study/+page.svelte] Loop terminated because isPlaying became false.');
+    }
+    isPlaybackLoopRunning = false;
+    console.log('[study/+page.svelte] Set isPlaybackLoopRunning = false at end of function.');
+  }
 
 	// Reactive statement to start/stop playback loop
-	$: if (get(ttsSettings).isPlaying && !isPlaybackLoopRunning) {
-		startCardSequencePlayback();
-	}
+  $: if (get(ttsSettings).isPlaying && !isPlaybackLoopRunning) {
+    console.log('[study/+page.svelte] Reactive trigger: isPlaying is true and loop not running. Calling startCardSequencePlayback().');
+    startCardSequencePlayback();
+  }
 
 	// Modify togglePlayback to stop speech synthesis when pausing
-	function togglePlayback() {
-		if (get(ttsSettings).isPlaying) {
-			pausePlayback(); // This will set ttsSettings.isPlaying to false
-			if (typeof window !== 'undefined' && window.speechSynthesis) {
-				window.speechSynthesis.cancel(); // Explicitly stop any ongoing TTS
-			}
-			// The loop will see isPlaying as false and stop. isPlaybackLoopRunning will be set to false by the loop itself.
-		} else {
-			startPlayback(); // This sets ttsSettings.isPlaying to true, reactive statement will pick it up
-		}
-	}
+  function togglePlayback() {
+    console.log('[study/+page.svelte] togglePlayback called. Current isPlaying state (from store before toggle):', get(ttsSettings).isPlaying);
+    if (get(ttsSettings).isPlaying) {
+      pausePlayback();
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        console.log('[study/+page.svelte] togglePlayback: Cancelling active speech synthesis.');
+        window.speechSynthesis.cancel();
+      }
+    } else {
+      startPlayback();
+    }
+  }
 
 	let collections: Collection[] = []; // For selection dropdown
 	let selectedCollectionId: string | undefined = undefined;

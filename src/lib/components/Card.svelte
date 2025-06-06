@@ -53,15 +53,17 @@
   });
 
   function speak(text: string, lang: string = 'en-US', speed: number = 1) { // Added speed parameter
+    console.log('[Card.svelte] speak() called with:', { text, lang, speed });
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      // speechSynthesis.cancel(); // Moved to speakCardDetails or specific play triggers
+      // speechSynthesis.cancel(); // Already moved
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = lang || currentDefaultLang;
       utterance.rate = speed; // Set playback speed
-      speechSynthesis.speak(utterance);
+      console.log('[Card.svelte] Attempting to speak:', utterance);
+      speechSynthesis.speak(utterance); // THIS IS THE KEY CALL
       return utterance; // Return utterance to attach event listeners if needed
     } else {
-      console.warn('Speech synthesis not supported or not available.');
+      console.warn('[Card.svelte] Speech synthesis not supported or not available.');
       return null;
     }
   }
@@ -70,51 +72,74 @@
   export async function speakCardDetails(
     { frontText = '', backText = '', exampleText = '', pronunciationText = '', lang = cardLang || currentDefaultLang, speed = currentPlaybackSpeed, delay = 750 }
   ) {
+    console.log('[Card.svelte] speakCardDetails() called with:', { frontText, backText, exampleText, pronunciationText, lang, speed, delay });
     if (typeof window === 'undefined' || !window.speechSynthesis) {
-      console.warn('Speech synthesis not supported.');
+      console.warn('[Card.svelte] speakCardDetails: Speech synthesis not supported.');
       return;
     }
-    speechSynthesis.cancel(); // Cancel any ongoing speech first
+    speechSynthesis.cancel();
+    console.log('[Card.svelte] speakCardDetails: Initial speech cancelled.');
 
+    // This function is inside speakCardDetails or accessible to it
     const speakAndWait = (textToSpeak: string, currentLang: string, currentSpeed: number) => {
+      console.log('[Card.svelte] speakAndWait() called for:', { textToSpeak, currentLang, currentSpeed });
       return new Promise<void>((resolve, reject) => {
-        if (!textToSpeak.trim()) {
-          resolve(); // Resolve immediately if text is empty
+        const strippedText = stripHtml(textToSpeak);
+        console.log('[Card.svelte] speakAndWait: Stripped text:', strippedText);
+        if (!strippedText.trim()) {
+          console.log('[Card.svelte] speakAndWait: Text is empty after stripHtml, resolving immediately.');
+          resolve();
           return;
         }
-        const utterance = speak(stripHtml(textToSpeak), currentLang, currentSpeed);
+        const utterance = speak(strippedText, currentLang, currentSpeed); // 'speak' now logs internally
         if (utterance) {
-          utterance.onend = () => resolve();
+          utterance.onend = () => {
+            console.log('[Card.svelte] speakAndWait: Utterance finished for:', strippedText);
+            resolve();
+          };
           utterance.onerror = (event) => {
-            console.error('Speech synthesis error:', event);
+            console.error('[Card.svelte] speakAndWait: Speech synthesis error:', event, 'for text:', strippedText);
             reject(event);
           };
         } else {
-          resolve(); // Resolve if speak returns null (e.g., SSR or no support)
+          console.log('[Card.svelte] speakAndWait: Speak function returned null, resolving.');
+          resolve();
         }
       });
     };
 
     try {
       if (stripHtml(frontText).trim()) {
+        console.log('[Card.svelte] speakCardDetails: Speaking frontText.');
         await speakAndWait(frontText, lang, speed);
+        console.log('[Card.svelte] speakCardDetails: Finished frontText, waiting for delay.');
         await new Promise(r => setTimeout(r, delay));
+        console.log('[Card.svelte] speakCardDetails: Delay after frontText finished.');
       }
       if (stripHtml(backText).trim()) {
+        console.log('[Card.svelte] speakCardDetails: Speaking backText.');
         await speakAndWait(backText, lang, speed);
+        console.log('[Card.svelte] speakCardDetails: Finished backText, waiting for delay.');
         await new Promise(r => setTimeout(r, delay));
+        console.log('[Card.svelte] speakCardDetails: Delay after backText finished.');
       }
       if (stripHtml(pronunciationText).trim()) { // Speak pronunciation if available
+        console.log('[Card.svelte] speakCardDetails: Speaking pronunciationText.');
         await speakAndWait(pronunciationText, lang, speed);
+        console.log('[Card.svelte] speakCardDetails: Finished pronunciationText, waiting for delay.');
         await new Promise(r => setTimeout(r, delay));
+        console.log('[Card.svelte] speakCardDetails: Delay after pronunciationText finished.');
       }
       if (stripHtml(exampleText).trim()) {
+        console.log('[Card.svelte] speakCardDetails: Speaking exampleText.');
         await speakAndWait(exampleText, lang, speed);
+        console.log('[Card.svelte] speakCardDetails: Finished exampleText.');
       }
+      console.log('[Card.svelte] speakCardDetails: All parts spoken.');
     } catch (error) {
-      console.error("Error during sequential speech playback:", error);
-      // Ensure speech is cancelled on error too
+      console.error("[Card.svelte] speakCardDetails: Error during sequential speech playback:", error);
       speechSynthesis.cancel();
+      console.log('[Card.svelte] speakCardDetails: Speech cancelled due to error.');
     }
   }
 
