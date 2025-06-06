@@ -1,6 +1,6 @@
 <!-- src/components/Card.svelte -->
 <script lang="ts">
-  import { createEventDispatcher, afterUpdate } from 'svelte'; // Removed onMount
+  import { createEventDispatcher, afterUpdate, onDestroy, onMount } from 'svelte'; // Added onDestroy and onMount
   import { ttsSettings } from '../stores/ttsStore'; // Import the TTS store
 
   export let pronunciation: string | null = null;
@@ -16,17 +16,6 @@
   function toggleCard() {
     flipped = !flipped;
     dispatch('toggle', { flipped });
-  }
-
-  function speak(text: string, lang: string = 'en-US') {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      speechSynthesis.cancel(); // Cancel any ongoing speech
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = lang || 'en-US'; // Use provided lang or default
-      speechSynthesis.speak(utterance);
-    } else {
-      console.warn('Speech synthesis not supported or not available.');
-    }
   }
 
   // Helper to strip HTML for TTS. This is a very basic stripper.
@@ -46,11 +35,89 @@
   let currentPlaybackSpeed: number;
   let prevFlipped = flipped; // Ensure this is declared
 
+  // Module-level variables for TTS state
+  let allVoices: SpeechSynthesisVoice[] = [];
+  let ttsInitialized: boolean = false;
+  let ttsInitPromise: Promise<void> | null = null;
+
   ttsSettings.subscribe(settings => {
     // currentAutoPlay = settings.autoPlay; // REMOVED
     currentDefaultLang = settings.defaultLang; // Keep existing
     currentPlaybackSpeed = settings.playbackSpeed; // NEW
   });
+
+  function populateVoiceList() {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        allVoices = voices;
+        ttsInitialized = true;
+        console.log('[Card.svelte] Voices populated and TTS initialized:', allVoices.length);
+        // Clean up listener if it was set by ensureTTSInitialized
+        if (window.speechSynthesis.onvoiceschanged === populateVoiceList) {
+          window.speechSynthesis.onvoiceschanged = null;
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function ensureTTSInitialized(): Promise<void> {
+    if (ttsInitialized) {
+      return Promise.resolve();
+    }
+
+    if (ttsInitPromise) { // If initialization is already in progress
+      return ttsInitPromise;
+    }
+
+    ttsInitPromise = new Promise<void>((resolve, reject) => {
+      if (typeof window === 'undefined' || !window.speechSynthesis) {
+        console.warn('[Card.svelte] Speech synthesis not supported, TTS initialization failed.');
+        reject('Speech synthesis not supported');
+        return;
+      }
+
+      // Try to populate voices immediately
+      if (populateVoiceList()) {
+        resolve();
+        return;
+      }
+
+      // If not populated, set up the listener
+      console.log('[Card.svelte] No voices initially, setting up voiceschanged listener.');
+      window.speechSynthesis.onvoiceschanged = () => {
+        if (populateVoiceList()) {
+          resolve();
+        } else {
+          // This case should ideally not happen if onvoiceschanged fires with voices
+          console.warn('[Card.svelte] onvoiceschanged fired but no voices found yet.');
+        }
+      };
+
+      // Timeout for initialization
+      const timeoutId = setTimeout(() => {
+        if (!ttsInitialized) {
+          console.warn('[Card.svelte] TTS initialization timed out after 5 seconds.');
+          // Check one last time
+          if (populateVoiceList()) {
+              resolve();
+          } else {
+              console.error('[Card.svelte] No voices available after timeout. Speech might fail.');
+              reject('TTS initialization timeout - no voices.');
+          }
+          if (window.speechSynthesis.onvoiceschanged === populateVoiceList) {
+               window.speechSynthesis.onvoiceschanged = null; // Clean up listener on timeout
+          }
+        }
+      }, 5000); // 5 second timeout
+
+      // Ensure timeout doesn't keep promise pending if resolved by event
+      ttsInitPromise!.finally(() => clearTimeout(timeoutId));
+    });
+    return ttsInitPromise;
+  }
 
   function speak(text: string, lang: string = 'en-US', speed: number = 1) { // Added speed parameter
     console.log('[Card.svelte] speak() called with:', { text, lang, speed });
@@ -73,16 +140,28 @@
     { frontText = '', backText = '', exampleText = '', pronunciationText = '', lang = cardLang || currentDefaultLang, speed = currentPlaybackSpeed, delay = 750 }
   ) {
     console.log('[Card.svelte] speakCardDetails() called with:', { frontText, backText, exampleText, pronunciationText, lang, speed, delay });
+
+    try {
+      console.log('[Card.svelte] speakCardDetails: Ensuring TTS is initialized...');
+      await ensureTTSInitialized();
+      console.log('[Card.svelte] speakCardDetails: TTS initialization complete/already initialized.');
+    } catch (initError) {
+      console.error('[Card.svelte] speakCardDetails: TTS initialization failed:', initError);
+      // Potentially show a user-facing error or disable speech functionality
+      return; // Do not proceed if TTS init failed
+    }
+
     if (typeof window === 'undefined' || !window.speechSynthesis) {
-      console.warn('[Card.svelte] speakCardDetails: Speech synthesis not supported.');
+      console.warn('[Card.svelte] speakCardDetails: Speech synthesis not supported (checked after init attempt).');
       return;
     }
     speechSynthesis.cancel();
     console.log('[Card.svelte] speakCardDetails: Initial speech cancelled.');
 
-    // This function is inside speakCardDetails or accessible to it
-    const speakAndWait = (textToSpeak: string, currentLang: string, currentSpeed: number) => {
-      console.log('[Card.svelte] speakAndWait() called for:', { textToSpeak, currentLang, currentSpeed });
+    try {
+      // speakAndWait definition if it was inside speakCardDetails, or ensure it's accessible
+      const speakAndWait = (textToSpeak: string, currentLang: string, currentSpeed: number) => {
+        console.log('[Card.svelte] speakAndWait() called for:', { textToSpeak, currentLang, currentSpeed });
       return new Promise<void>((resolve, reject) => {
         const strippedText = stripHtml(textToSpeak);
         console.log('[Card.svelte] speakAndWait: Stripped text:', strippedText);
@@ -139,14 +218,19 @@
     } catch (error) {
       console.error("[Card.svelte] speakCardDetails: Error during sequential speech playback:", error);
       speechSynthesis.cancel();
-      console.log('[Card.svelte] speakCardDetails: Speech cancelled due to error.');
+      console.log('[Card.svelte] speakCardDetails: Speech cancelled due to error in parts.');
     }
   }
 
-  // Remove auto-speak from onMount for 'front'
-  // onMount(() => { // REMOVED onMount block
-    // All auto-play logic previously here was commented out and is now fully removed.
-  // });
+  onMount(async () => {
+    console.log('[Card.svelte] Component mounted. Proactively initializing TTS.');
+    try {
+      await ensureTTSInitialized();
+      console.log('[Card.svelte] Proactive TTS initialization successful onMount.');
+    } catch (error) {
+      console.error('[Card.svelte] Proactive TTS initialization failed onMount:', error);
+    }
+  });
 
   // Remove auto-speak from afterUpdate for 'back'
   afterUpdate(() => {
@@ -156,6 +240,46 @@
     }
   });
 
+  onDestroy(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      if (window.speechSynthesis.onvoiceschanged === populateVoiceList) { // Check if it's our specific listener
+          console.log('[Card.svelte] Component destroyed. Clearing our onvoiceschanged listener.');
+          window.speechSynthesis.onvoiceschanged = null;
+      }
+    }
+    ttsInitPromise = null;
+    ttsInitialized = false;
+    allVoices = [];
+    // No need to reset resolveTTSInitPromise/rejectTTSInitPromise here as they are function-scoped to ensureTTSInitialized
+  });
+
+  async function testSpeakSimple() {
+    console.log('[Card.svelte] testSpeakSimple() called.');
+    try {
+      console.log('[Card.svelte] testSpeakSimple: Ensuring TTS is initialized...');
+      await ensureTTSInitialized();
+      console.log('[Card.svelte] testSpeakSimple: TTS initialization complete.');
+
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        const textToTest = "Hello world, this is a test.";
+        const langToTest = "en-US";
+        const speedToTest = 1.0;
+        console.log(`[Card.svelte] testSpeakSimple: Attempting to speak: "${textToTest}" with lang: ${langToTest}`);
+        const utterance = speak(textToTest, langToTest, speedToTest); // speak() already has logs
+        if (utterance) {
+          utterance.onstart = () => console.log('[Card.svelte] testSpeakSimple: Speech started.');
+          utterance.onend = () => console.log('[Card.svelte] testSpeakSimple: Speech ended.');
+          utterance.onerror = (e) => console.error('[Card.svelte] testSpeakSimple: Speech error:', e);
+        } else {
+          console.warn('[Card.svelte] testSpeakSimple: Speak function returned null.');
+        }
+      } else {
+        console.warn('[Card.svelte] testSpeakSimple: Speech synthesis not supported.');
+      }
+    } catch (error) {
+      console.error('[Card.svelte] testSpeakSimple: Error during test speech:', error);
+    }
+  }
 </script>
 
 <div class="card-container" role="button" tabindex="0"
@@ -321,3 +445,12 @@
   }
 
 </style>
+
+<!-- Temporary Debug Controls -->
+<div style="margin-top: 20px; padding: 10px; border: 1px dashed blue;">
+  <p><strong>Temporary Debug Controls:</strong></p>
+  <button type="button" on:click={testSpeakSimple} style="background-color: #f0ad4e; color: white; padding: 5px 10px; border-radius: 4px;">
+    Test Simple Speak (Card.svelte)
+  </button>
+  <p style="font-size: 0.8em;">(Checks TTS init & speaks "Hello world")</p>
+</div>
